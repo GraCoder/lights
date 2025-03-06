@@ -1,0 +1,158 @@
+#version 430
+
+#define WORKGROUP_SIZE 16
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1) in;
+
+layout(binding = 0) uniform CameraBufferObject {
+    mat4 view;
+    mat4 proj;
+} camera;
+
+uniform float current_time;
+uniform float delta_time;
+
+uniform float wind_magnitude;
+uniform float wind_wave_length;
+uniform float wind_wave_period;
+
+struct Blade {
+	vec4 v0;
+	vec4 v1;
+	vec4 v2;
+	vec4 up;
+};
+
+layout(binding = 1, std140) buffer inputBuffer
+{
+	Blade inputBlades[];
+};
+
+layout(binding = 2, std140) buffer outputBuffer
+{
+	Blade outputBlades[];
+};
+
+// Indirect drawing count
+layout(binding = 3) buffer BladeNums
+{
+	uint vertexCount;
+	uint instanceCount;// = 1
+	uint firstVertex;// = 0
+	uint firstInstance;// = 0
+} bladesNum;
+
+shared bool cull;
+
+bool inBounds(float value, float bounds)
+{
+	return (value >= -bounds) && (value <= bounds);
+}
+
+float rand(float seed)
+{
+	return fract(sin(seed) * 100000.0);
+}
+
+bool cullFun(vec4 v)
+{
+	v /= v.w;
+	return v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1;
+}
+
+bool cullBlock()
+{
+	mat4 mat = camera.proj* camera.view;
+	uint index1 = WORKGROUP_SIZE * gl_NumWorkGroups.x * WORKGROUP_SIZE * gl_WorkGroupID.y
+		+ WORKGROUP_SIZE * gl_WorkGroupID.x, index2 = index1 + WORKGROUP_SIZE - 1;
+	uint index3 = WORKGROUP_SIZE * gl_NumWorkGroups.x * (WORKGROUP_SIZE * gl_WorkGroupID.y + WORKGROUP_SIZE - 1)
+		+ WORKGROUP_SIZE * gl_WorkGroupID.x, index4 = index3 + WORKGROUP_SIZE - 1;
+	vec3 bv1 = inputBlades[index1].v0.xyz; vec3 bv2 = inputBlades[index2].v0.xyz;
+	vec3 bv3 = inputBlades[index3].v0.xyz; vec3 bv4 = inputBlades[index4].v0.xyz;
+	vec4 v1ClipSpace = mat * vec4(bv1, 1); vec4 v2ClipSpace = mat * vec4(bv2, 1);
+	vec4 v3ClipSpace = mat * vec4(bv3, 1); vec4 v4ClipSpace = mat * vec4(bv4, 1);
+
+	if (cullFun(v1ClipSpace) && cullFun(v2ClipSpace) && cullFun(v3ClipSpace) && cullFun(v4ClipSpace))
+		return true;
+	return false;
+}
+
+void main()
+{
+	//if (gl_LocalInvocationID.x == 0
+	//	&& gl_LocalInvocationID.y == 0) 
+	//	cull = cullBlock();
+	//barrier();
+
+	//if (cull)
+	//	return;		
+
+	uint index = WORKGROUP_SIZE * gl_NumWorkGroups.x * gl_GlobalInvocationID.y
+		+ gl_GlobalInvocationID.x;
+	vec3 v0 = inputBlades[index].v0.xyz;
+	vec3 v1 = inputBlades[index].v1.xyz;
+	vec3 v2 = inputBlades[index].v2.xyz;
+	vec3 up = normalize(inputBlades[index].up.xyz);
+	float orientation = inputBlades[index].v0.w;
+	float height = inputBlades[index].v1.w;
+	float width = inputBlades[index].v2.w;
+	float stiffness = inputBlades[index].up.w;
+
+
+	// Frustum culling
+	vec4 v0ClipSpace = camera.proj * camera.view * vec4(v0, 1);
+	v0ClipSpace /= v0ClipSpace.w;
+
+	bool drop = false;
+
+	bool v0OutFrustum =
+		v0ClipSpace.x < -1 || v0ClipSpace.x > 1
+		|| v0ClipSpace.y < -1 || v0ClipSpace.y > 1;
+
+	drop = drop || v0OutFrustum;
+
+	//// Distance culling
+	//const float far1 = 0.99;
+	//drop = drop || (v0ClipSpace.z > far1&& rand(index) > (v0ClipSpace.z / 1.5));
+	
+	//const float far2 = 0.995;
+	//drop = drop || (v0ClipSpace.z > far2 && rand(index) > (v0ClipSpace.z / 2));
+
+	//const float far3 = 0.999;
+	//drop = drop || (v0ClipSpace.z > far3 && rand(index) > (v0ClipSpace.z / 5));
+
+	//if (drop)
+	//	return;
+
+	// Apply forces {
+	//  Gravities
+	vec3 gE = vec3(0, 0, -0.98);
+	vec3 widthDir = vec3(cos(orientation), sin(orientation), 0);
+	vec3 bladeFace = normalize(cross(up, widthDir));
+	vec3 gF = 0.25 * 0.98 * bladeFace;
+	vec3 g = gE + gF;
+
+	//  Recovery
+	vec3 r = (v0 + up * height - v2) * stiffness;
+
+	//  Wind
+	vec3 windForce = 0.25 * wind_magnitude *
+		vec3(
+			sin(current_time * 3. / wind_wave_period + v0.x * 0.1 * 11 / wind_wave_length),
+			sin(current_time * 3. / wind_wave_period + v0.y * 0.2 * 11 / wind_wave_length) * 0.1,
+			0
+		);
+	float fd = 1 - abs(dot(normalize(windForce), normalize(v2 - v0)));
+	float fr = dot((v2 - v0), up) / height;
+	vec3 w = windForce * fd * fr;
+
+	v2 += (0.1 * g + r + w) * delta_time;
+
+	float lproj = length(v2 - v0 - up * dot((v2 - v0), up));
+	v1 = v0 + height * up * max(1 - lproj / height, 0.05 * max(lproj / height, 1));
+
+	inputBlades[index].v1.xyz = v1;
+	inputBlades[index].v2.xyz = v2;
+	//}
+
+	outputBlades[atomicAdd(bladesNum.vertexCount, 1)] = inputBlades[index];
+}

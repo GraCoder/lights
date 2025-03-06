@@ -1,0 +1,24 @@
+#version 450
+
+layout(rgba16f, binding = 0) uniform image3D noiseTex;
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 4) in;
+
+float simplex3d_fractal_abs(vec3);
+float worley3d_circle_fractal(vec3);
+
+float remap(float x, float origin_min, float origin_max, float dst_min, float dst_max)
+{
+	return (((x - origin_min) / (origin_max - origin_min)) * (dst_max - dst_min)) + dst_min;
+}
+
+void main()
+{
+	ivec3 pos = ivec3(gl_GlobalInvocationID.xyz);
+	vec3 px = vec3(gl_GlobalInvocationID.xyz) / vec3(128);
+	float value = simplex3d_fractal_abs(px * 8);
+	float wvalue1 = worley3d_circle_fractal(px * 8);
+	float wvalue2 = worley3d_circle_fractal(px * 16);
+	float wvalue3 = worley3d_circle_fractal(px * 32);
+	value = remap(value, 0, 1, wvalue1, 1);
+	imageStore(noiseTex, pos, vec4(value, wvalue1, wvalue2, wvalue3));
+}
