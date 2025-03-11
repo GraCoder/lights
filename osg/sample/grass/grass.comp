@@ -1,6 +1,6 @@
 #version 430
 
-#define WORKGROUP_SIZE 16
+#define WORKGROUP_SIZE 32
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1) in;
 
 layout(binding = 0) uniform CameraBufferObject {
@@ -86,8 +86,7 @@ void main()
 	//if (cull)
 	//	return;		
 
-	uint index = WORKGROUP_SIZE * gl_NumWorkGroups.x * gl_GlobalInvocationID.y
-		+ gl_GlobalInvocationID.x;
+	uint index = WORKGROUP_SIZE * gl_NumWorkGroups.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x;
 	vec3 v0 = inputBlades[index].v0.xyz;
 	vec3 v1 = inputBlades[index].v1.xyz;
 	vec3 v2 = inputBlades[index].v2.xyz;

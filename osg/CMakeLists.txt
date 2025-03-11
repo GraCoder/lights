@@ -12,6 +12,8 @@ cmake_path(SET osg_build_dir  ${OSG_DIR})
 
 set(runtime_dir "${osg_build_dir}/bin;${third_dir}/bin")
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${OSG_DIR}/bin)
+
 add_subdirectory(basic-lighting)
 add_subdirectory(basic-material)
 add_subdirectory(pbr-lighting)

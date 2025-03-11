@@ -15,6 +15,8 @@
 
 #define GL_ARRAY_BUFFER                   0x8892
 
+const int grasssz = 2048;
+
 class GrassNode : public osg::Drawable {
 public:
 	GrassNode()
@@ -29,6 +31,12 @@ public:
 	~GrassNode()
 	{
 
+	}
+
+  virtual BoundingBox computeBoundingBox() const override 
+	{
+    osg::Vec3d pt(grasssz, grasssz, grasssz);
+    return osg::BoundingBox(-pt, pt);
 	}
 
 	void drawImplementation(RenderInfo& renderInfo) const
@@ -67,8 +75,6 @@ public:
 	osg::ref_ptr<osg::DrawIndirectBufferObject> _dibo;
 };
 
-const int grasssz = 2048;
-
 TestNode::TestNode()
 {
 	setCullingActive(false);
@@ -85,10 +91,11 @@ TestNode::TestNode()
 	std::uniform_real_distribution<float> height_dis(0.6f, 1.2f);
 	std::uniform_real_distribution<float> dis(-1, 1);
 
+	blades.reserve(grasssz * grasssz);
 	for (int i = -grasssz; i < grasssz; ++i) {
 		for (int j = -grasssz; j < grasssz; ++j) {
-			const auto x = static_cast<float>(j)/2 -1 + dis(gen) * 0.5f;
-			const auto y = static_cast<float>(i)/2 -1 + dis(gen) * 0.5f;
+			const auto x = (static_cast<float>(j) + dis(gen)) * 0.5f;
+			const auto y = (static_cast<float>(i) + dis(gen)) * 0.5f;
 			const auto blade_height = height_dis(gen);
 
 			blades.emplace_back(
@@ -140,7 +147,7 @@ TestNode::TestNode()
 		auto program = new osg::Program;
 		program->addShader(new osg::Shader(osg::Shader::COMPUTE, comShaderSource));
 
-		auto srcNode = new osg::DispatchCompute(128, 128, 1);
+		auto srcNode = new osg::DispatchCompute(grasssz / 32 * 2, grasssz / 32 * 2, 1);
 		srcNode->setDataVariance(osg::Object::DYNAMIC);
 		auto ss = srcNode->getOrCreateStateSet();
 		ss->setAttribute(program);
@@ -211,13 +218,4 @@ void TestNode::traverse(NodeVisitor& nv)
 	}
 
 	Group::traverse(nv);
-}
-
-void TestNode::drawImplementation(RenderInfo& renderInfo) const
-{
-}
-
-BoundingSphere TestNode::computeBound() const
-{
-	return BoundingSphere({ 0, 0, 0 }, grasssz * sqrt(2));
 }
