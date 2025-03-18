@@ -247,6 +247,7 @@ void BlendNode2::method_bavoil_myers()
   }
 
   auto geo = osg::createTexturedQuadGeometry(osg::Vec3(-1, -1, 0), osg::Vec3(2, 0, 0), osg::Vec3(0, 2, 0));
+  geo->setUseVertexBufferObjects(true);
   geo->setCullingActive(0);
   geo->setComputeBoundingBoxCallback(new osg::Drawable::ComputeBoundingBoxCallback);
   addChild(geo);
@@ -273,7 +274,7 @@ void BlendNode2::method_bavoil_myers()
 void BlendNode2::method_bavoil_myers_new()
 {
   _camera = new osg::Camera;
-  _camera->setClearColor(osg::Vec4(0, 0, 0, 0));
+  _camera->setClearMask(0);
   _camera->setRenderOrder(osg::Camera::PRE_RENDER);
   _camera->setReferenceFrame(osg::Camera::RELATIVE_RF);
   _camera->addChild(_quads);
@@ -296,6 +297,7 @@ void BlendNode2::method_bavoil_myers_new()
     auto b = new osg::BlendFunci(0, GL_ONE, GL_ONE);
     ss->setAttributeAndModes(b);
     b = new osg::BlendFunci(1, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+    ss->setAttributeAndModes(b);
 
     ss->setMode(GL_DEPTH_TEST, 0);
 

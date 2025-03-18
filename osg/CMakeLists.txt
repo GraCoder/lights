@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.24)
 
 find_package(OpenSceneGraph COMPONENTS osg osgDB osgViewer osgUtil osgGA)
 
-find_path(OSG_GEN_INCLUDE_PATH  NAMES Config GL)
+find_path(OSG_GEN_INCLUDE_PATH NAMES osg/Config osg/GL PATHS ${OSG_DIR}/include)
 
 INCLUDE_DIRECTORIES(${OSG_GEN_INCLUDE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
 

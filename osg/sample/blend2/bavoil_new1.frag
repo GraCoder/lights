@@ -9,5 +9,5 @@ void main()
 {
   accc.rgb = vp_clr.rgb * vp_clr.a;
   accc.a = vp_clr.a;
-  acca = 1;
+  acca = vp_clr.a * 0.00001;
 }
