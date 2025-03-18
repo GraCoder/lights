@@ -34,6 +34,8 @@ foreach(lib ${libs})
 	target_link_libraries(${target_name} debug ${${lib}_DEBUG} optimized ${${lib}_RELEASE})
 endforeach()
 
+target_link_libraries(${target_name} opengl32)
+
 set_target_properties(${target_name} PROPERTIES FOLDER "osg/sample")
 
 set(SHADERS
@@ -44,7 +46,12 @@ set(SHADERS
 	meshkin2.frag
 
 	bavoil1.frag
+	bavoil2.vert
 	bavoil2.frag
+
+	bavoil_new1.frag
+	bavoil_new2.vert
+	bavoil_new2.frag
 )
 
 source_group(shaders FILES ${SHADERS})

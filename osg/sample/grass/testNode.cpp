@@ -15,7 +15,7 @@
 
 #define GL_ARRAY_BUFFER                   0x8892
 
-const int grasssz = 2048;
+const int grasssz = 256;
 
 class GrassNode : public osg::Drawable {
 public:
@@ -147,7 +147,7 @@ TestNode::TestNode()
 		auto program = new osg::Program;
 		program->addShader(new osg::Shader(osg::Shader::COMPUTE, comShaderSource));
 
-		auto srcNode = new osg::DispatchCompute(grasssz / 32 * 2, grasssz / 32 * 2, 1);
+		auto srcNode = new osg::DispatchCompute(std::max<int>(grasssz / 32 * 2, 1), std::max<int>(grasssz / 32 * 2, 1), 1);
 		srcNode->setDataVariance(osg::Object::DYNAMIC);
 		auto ss = srcNode->getOrCreateStateSet();
 		ss->setAttribute(program);
