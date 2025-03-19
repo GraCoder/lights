@@ -49,9 +49,12 @@ set(SHADERS
 	bavoil2.vert
 	bavoil2.frag
 
+	bavoil_new.vert
+	bavoil_new.frag
 	bavoil_new1.frag
-	bavoil_new2.vert
-	bavoil_new2.frag
+	bavoil_new_blt.vert
+	bavoil_new_blt.frag
+	bavoil_new_blt1.frag
 )
 
 source_group(shaders FILES ${SHADERS})

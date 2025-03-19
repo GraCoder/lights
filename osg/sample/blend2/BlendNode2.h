@@ -19,6 +19,7 @@ private:
   void method_meshkin();
   void method_bavoil_myers();
   void method_bavoil_myers_new();
+  void method_bavoil_myers_new1();
 
 private:
   int _width = 0;

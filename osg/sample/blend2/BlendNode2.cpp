@@ -51,9 +51,10 @@ BlendNode2::BlendNode2()
   }
 
   // method_normal();
-  // method_meshkin();
+  method_meshkin();
   // method_bavoil_myers();
-  method_bavoil_myers_new();
+  //method_bavoil_myers_new();
+  //method_bavoil_myers_new1();
 }
 
 BlendNode2::~BlendNode2() {}
@@ -129,7 +130,7 @@ public:
     ext->glDrawBuffers(2, buffers);
     static const float clr1[] = {0, 0, 0, 0};
     ext->glClearBufferfv(GL_COLOR, 0, clr1);
-    static const float clr2[] = {1};
+    static const float clr2[] = {1, 1, 1, 1};
     ext->glClearBufferfv(GL_COLOR, 1, clr2);
   }
 };
@@ -173,7 +174,8 @@ void BlendNode2::method_meshkin()
   _camera->attach(osg::Camera::COLOR_BUFFER, _texture1);
   addChild(_camera);
 
-  _camera->addPreDrawCallback(new Callback(_viewMatrix, _prjMatrix));
+  //_camera->addPreDrawCallback(new Callback(_viewMatrix, _prjMatrix));
+  _camera->addChild(new ClearNode);
 
   {
     auto ss = _camera->getOrCreateStateSet();
@@ -283,7 +285,7 @@ void BlendNode2::method_bavoil_myers_new()
   _texture1 = new osg::Texture2D;
   _texture1->setInternalFormat(GL_RGBA16F);
   _texture2 = new osg::Texture2D;
-  _texture2->setInternalFormat(GL_R16F);
+  _texture2->setInternalFormat(GL_RGBA16F);
 
   _camera->attach(osg::Camera::COLOR_BUFFER0, _texture1);
   _camera->attach(osg::Camera::COLOR_BUFFER1, _texture2);
@@ -302,7 +304,62 @@ void BlendNode2::method_bavoil_myers_new()
     ss->setMode(GL_DEPTH_TEST, 0);
 
     auto prg = new osg::Program;
-    prg->addShader(new osg::Shader(osg::Shader::VERTEX, ReadFile("blend.vert")));
+    prg->addShader(new osg::Shader(osg::Shader::VERTEX, ReadFile("bavoil_new.vert")));
+    prg->addShader(new osg::Shader(osg::Shader::FRAGMENT, ReadFile("bavoil_new.frag")));
+    ss->setAttribute(prg);
+  }
+
+  auto geo = osg::createTexturedQuadGeometry(osg::Vec3(-1, -1, 0), osg::Vec3(2, 0, 0), osg::Vec3(0, 2, 0));
+  geo->setCullingActive(0);
+  geo->setComputeBoundingBoxCallback(new osg::Drawable::ComputeBoundingBoxCallback);
+  addChild(geo);
+  {
+    auto ss = geo->getOrCreateStateSet();
+
+    {
+      auto b = new osg::BlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
+      ss->setAttributeAndModes(b);
+    }
+
+    ss->setTextureAttributeAndModes(0, _texture1);
+    ss->getOrCreateUniform("c0_tex", osg::Uniform::SAMPLER_2D)->set(0);
+    ss->setTextureAttributeAndModes(1, _texture2);
+    ss->getOrCreateUniform("c1_tex", osg::Uniform::SAMPLER_2D)->set(1);
+
+    auto prg = new osg::Program;
+    prg->addShader(new osg::Shader(osg::Shader::VERTEX, ReadFile("bavoil_new_blt.vert")));
+    prg->addShader(new osg::Shader(osg::Shader::FRAGMENT, ReadFile("bavoil_new_blt.frag")));
+    ss->setAttribute(prg);
+  }
+}
+
+void BlendNode2::method_bavoil_myers_new1() 
+{
+  _camera = new osg::Camera;
+  _camera->setClearColor(osg::Vec4(0, 0, 0, 1));
+  _camera->setRenderOrder(osg::Camera::PRE_RENDER);
+  _camera->setReferenceFrame(osg::Camera::RELATIVE_RF);
+  _camera->addChild(_quads);
+  _camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+
+  _texture1 = new osg::Texture2D;
+  _texture1->setInternalFormat(GL_RGBA16F);
+  _texture2 = new osg::Texture2D;
+  _texture2->setInternalFormat(GL_RGBA16F);
+
+  _camera->attach(osg::Camera::COLOR_BUFFER0, _texture1);
+  _camera->attach(osg::Camera::COLOR_BUFFER1, _texture2);
+  addChild(_camera);
+
+  {
+    auto ss = _camera->getOrCreateStateSet();
+    auto b = new osg::BlendFunc(GL_ONE, GL_ONE, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+    ss->setAttributeAndModes(b);
+
+    ss->setMode(GL_DEPTH_TEST, 0);
+
+    auto prg = new osg::Program;
+    prg->addShader(new osg::Shader(osg::Shader::VERTEX, ReadFile("bavoil_new.vert")));
     prg->addShader(new osg::Shader(osg::Shader::FRAGMENT, ReadFile("bavoil_new1.frag")));
     ss->setAttribute(prg);
   }
@@ -325,8 +382,8 @@ void BlendNode2::method_bavoil_myers_new()
     ss->getOrCreateUniform("c1_tex", osg::Uniform::SAMPLER_2D)->set(1);
 
     auto prg = new osg::Program;
-    prg->addShader(new osg::Shader(osg::Shader::VERTEX, ReadFile("bavoil_new2.vert")));
-    prg->addShader(new osg::Shader(osg::Shader::FRAGMENT, ReadFile("bavoil_new2.frag")));
+    prg->addShader(new osg::Shader(osg::Shader::VERTEX, ReadFile("bavoil_new_blt.vert")));
+    prg->addShader(new osg::Shader(osg::Shader::FRAGMENT, ReadFile("bavoil_new_blt1.frag")));
     ss->setAttribute(prg);
   }
 }
