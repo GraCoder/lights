@@ -41,7 +41,7 @@ layout(binding = 3) buffer BladeNums
 	uint firstInstance;// = 0
 } bladesNum;
 
-shared bool cull;
+shared bool culled;
 
 bool inBounds(float value, float bounds)
 {
@@ -78,13 +78,13 @@ bool cullBlock()
 
 void main()
 {
-	//if (gl_LocalInvocationID.x == 0
-	//	&& gl_LocalInvocationID.y == 0) 
-	//	cull = cullBlock();
-	//barrier();
+	if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0) 
+		culled = cullBlock();
 
-	//if (cull)
-	//	return;		
+	barrier();
+
+	if (culled)
+		return;		
 
 	uint index = WORKGROUP_SIZE * gl_NumWorkGroups.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x;
 	vec3 v0 = inputBlades[index].v0.xyz;
@@ -109,18 +109,18 @@ void main()
 
 	drop = drop || v0OutFrustum;
 
-	//// Distance culling
-	//const float far1 = 0.99;
-	//drop = drop || (v0ClipSpace.z > far1&& rand(index) > (v0ClipSpace.z / 1.5));
+	// Distance culling
+	const float far1 = 0.99;
+	drop = drop || (v0ClipSpace.z > far1&& rand(index) > (v0ClipSpace.z / 1.5));
 	
-	//const float far2 = 0.995;
-	//drop = drop || (v0ClipSpace.z > far2 && rand(index) > (v0ClipSpace.z / 2));
+	const float far2 = 0.995;
+	drop = drop || (v0ClipSpace.z > far2 && rand(index) > (v0ClipSpace.z / 2));
 
-	//const float far3 = 0.999;
-	//drop = drop || (v0ClipSpace.z > far3 && rand(index) > (v0ClipSpace.z / 5));
+	const float far3 = 0.999;
+	drop = drop || (v0ClipSpace.z > far3 && rand(index) > (v0ClipSpace.z / 5));
 
-	//if (drop)
-	//	return;
+	if (drop)
+		return;
 
 	// Apply forces {
 	//  Gravities

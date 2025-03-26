@@ -1,4 +1,3 @@
-#include "testNode.h"
 #include <osgDB/ReadFile>
 #include <osgUtil/Optimizer>
 #include <osgViewer/Viewer>
@@ -9,6 +8,8 @@
 #include <osgViewer/ViewerEventHandlers>
 
 #include <iostream>
+
+#include "GrassNode.h"
 
 int main(int argc, char **argv)
 {
@@ -22,7 +23,7 @@ int main(int argc, char **argv)
   viewer.getCamera()->setClearColor({0, 0, 0, 1});
   viewer.realize();
 
-  auto node = new TestNode;
+  auto node = new GrassNode;
   viewer.setSceneData(node);
 
   {

@@ -1,18 +1,18 @@
 cmake_minimum_required(VERSION 3.24)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(target_name grass)
 
 set(hdr
-	testNode.h
+	GrassNode.h
 )
 
 set(src
 	main.cpp
-	testNode.cpp
+	GrassNode.cpp
 )
 
 set(libs
