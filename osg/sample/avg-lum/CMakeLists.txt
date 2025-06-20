@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.24)
 
-set(target_name blend1)
+set(target_name avg-lum)
 
 set(hdr
-	BlendNode1.h
+	LumNode.h
 )
 
 set(src
 	main.cpp
-	BlendNode1.cpp
+	LumNode.cpp
 )
 
 set(libs
@@ -37,8 +37,10 @@ endforeach()
 set_target_properties(${target_name} PROPERTIES FOLDER "osg/sample")
 
 set(SHADERS
-	../glsl/blend.vert
-	../glsl/blend.frag
+	avglum.vert
+	avglum.frag
+	ssrect.vert
+	ssrect.frag
 )
 
 source_group(shaders FILES ${SHADERS})

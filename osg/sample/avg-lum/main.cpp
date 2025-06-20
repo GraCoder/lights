@@ -1,7 +1,7 @@
 #include <osgDB/ReadFile>
 #include <osgUtil/Optimizer>
 #include <osgViewer/Viewer>
-#include "BlendNode1.h"
+#include "LumNode.h"
 
 #include <osgViewer/ViewerEventHandlers>
 #include <osgViewer/ImGuiHandler>
@@ -16,7 +16,11 @@ int main(int argc, char** argv)
   viewer.addEventHandler(new osgViewer::StatsHandler);
   viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
   viewer.addEventHandler(new osgViewer::ToggleSyncToVBlankHandler);
-  viewer.addEventHandler(new osgViewer::ImGuiHandler);
+  {
+    auto handler = new osgViewer::ImGuiHandler;
+    handler->setFont();
+    viewer.addEventHandler(handler);
+  }
   viewer.setThreadingModel(viewer.SingleThreaded);
   // viewer.setLightingMode(viewer.NO_LIGHT);
   {
@@ -38,19 +42,15 @@ int main(int argc, char** argv)
 
     osg::ref_ptr<osg::GraphicsContext> gc = osg::GraphicsContext::createGraphicsContext(traits.get());
 
-    osg::ref_ptr<osg::Camera> camera = new osg::Camera;
 
+    auto camera = viewer.getCamera();
     camera->setGraphicsContext(gc.get());
     camera->setViewport(new osg::Viewport(0, 0, traits->width, traits->height));
     //camera->setComputeNearFarMode(camera->DO_NOT_COMPUTE_NEAR_FAR);
-    GLenum buffer = traits->doubleBuffer ? GL_BACK : GL_FRONT;
-    camera->setDrawBuffer(buffer);
-    camera->setReadBuffer(buffer);
-    viewer.addSlave(camera);
     camera->setClearColor({0, 0, 0, 1});
   }
 
-  auto node = new BlendNode1;
+  auto node = new LumNode;
   viewer.setSceneData(node);
 
   return viewer.run();
