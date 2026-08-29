@@ -2,6 +2,7 @@
 
 #include "PCFShadow.h"
 #include "ShadowTechnique.h"
+#include "VSMShadow.h"
 
 #include "Manipulator.h"
 #include "VulkanBuffer.h"
@@ -39,7 +40,7 @@ ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev)
   _model = loader.loadFile(ROOT_DIR "/data/plane_sphere.glb");
   //_tree->set_transform(tg::translate(tg::vec3(0, 1, 0)) * tg::scale(4.0f));
 
-  setShadowType(ShadowType::PCF);
+  setShadowType(ShadowType::VSM);
 
   {
     _basicTexture = std::make_shared<VulkanTexture>();
@@ -116,6 +117,9 @@ void ShadowView::setShadowType(ShadowType type)
   case ShadowType::PCF:
     _shadow = std::make_unique<PCFShadow>(_device);
     break;
+  case ShadowType::VSM:
+    _shadow = std::make_unique<VSMShadow>(_device);
+    break;
   }
 
   _shadow->initializeUniforms();
@@ -178,6 +182,9 @@ void ShadowView::keyUp(int key)
     updateUbo();
   else if (key == SDL_SCANCODE_P) {
     _shadow->toggleFilterMode();
+    updateUbo();
+  } else if (key == SDL_SCANCODE_V) {
+    setShadowType(_shadowType == ShadowType::PCF ? ShadowType::VSM : ShadowType::PCF);
     updateUbo();
   }
 }

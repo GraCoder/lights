@@ -12,7 +12,8 @@ using tg::vec2;
 
 #define SHADER_DIR ROOT_DIR##"/vulkan/shadow/soft_shadowmap"
 
-ShadowPipeline::ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev) : TexturePipeline(dev)
+ShadowPipeline::ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev, std::string fragmentShader)
+  : TexturePipeline(dev), _fragmentShader(std::move(fragmentShader))
 {
 }
 
@@ -126,7 +127,7 @@ void ShadowPipeline::realize(VulkanPass *renderPass, int subpass)
 
   shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  shaderStages[1].module = _device->createShader(SHADER_DIR "/pcf_shadow.frag.spv");
+  shaderStages[1].module = _device->createShader(std::string(SHADER_DIR) + "/" + _fragmentShader);
   shaderStages[1].pName = "main";
   assert(shaderStages[1].module != VK_NULL_HANDLE);
 

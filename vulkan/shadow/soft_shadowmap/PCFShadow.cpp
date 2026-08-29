@@ -64,8 +64,8 @@ void PCFShadow::initializeUniforms()
   _depthMatrix.prj = tg::ortho<float>(-5, 5, -5, 5, 0.1, 20);
   writeBuffer(*_depthMatrixBuffer, _depthMatrix);
 
-  _shadowBuffer = _device->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                        sizeof(ShadowMatrix));
+  _shadowBuffer =
+    _device->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(ShadowMatrix));
   _shadowMatrix.light = tg::normalize(lightPosition);
   _shadowMatrix.light.w() = _filterMode;
   _shadowMatrix.view = _depthMatrix.view;

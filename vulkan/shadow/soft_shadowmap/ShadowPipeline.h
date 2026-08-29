@@ -2,9 +2,12 @@
 
 #include "TexturePipeline.h"
 
-class ShadowPipeline : public TexturePipeline {
+#include <string>
+
+class ShadowPipeline : public TexturePipeline
+{
 public:
-  ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev);
+  ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev, std::string fragmentShader = "pcf_shadow.frag.spv");
   ~ShadowPipeline();
 
   void realize(VulkanPass *renderPass, int subpass = 0);
@@ -16,7 +19,8 @@ public:
 
 private:
 
+  std::string _fragmentShader;
+
   VkDescriptorSetLayout _lightLayout = VK_NULL_HANDLE;
   VkDescriptorSetLayout _shadowLayout = VK_NULL_HANDLE;
-
 };

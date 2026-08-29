@@ -340,17 +340,38 @@ VkImageView VulkanDevice::createImageView(VkImage img, VkFormat format)
   return view;
 }
 
-std::shared_ptr<VulkanImage> VulkanDevice::createColorImage(uint32_t width, uint32_t height, VkFormat format)
+std::shared_ptr<VulkanImage> VulkanDevice::createColorImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage)
 {
-  auto [img, imgmem] = createImage(width, height, format);
+  VkImageCreateInfo imageInfo = vks::initializers::imageCreateInfo();
+  imageInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageInfo.format = format;
+  imageInfo.extent = {width, height, 1};
+  imageInfo.mipLevels = 1;
+  imageInfo.arrayLayers = 1;
+  imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageInfo.usage = usage;
+  imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+  VkImage img = VK_NULL_HANDLE;
+  VK_CHECK_RESULT(vkCreateImage(_logicalDevice, &imageInfo, nullptr, &img));
+
+  VkMemoryRequirements memReqs;
+  vkGetImageMemoryRequirements(_logicalDevice, img, &memReqs);
+
+  VkMemoryAllocateInfo memAllocInfo = vks::initializers::memoryAllocateInfo();
+  memAllocInfo.allocationSize = memReqs.size;
+  memAllocInfo.memoryTypeIndex = *memoryTypeIndex(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  VkDeviceMemory imgmem = VK_NULL_HANDLE;
+  VK_CHECK_RESULT(vkAllocateMemory(_logicalDevice, &memAllocInfo, nullptr, &imgmem));
+  VK_CHECK_RESULT(vkBindImageMemory(_logicalDevice, img, imgmem, 0));
+
   auto imgview = createImageView(img, format);
 
   auto dev = shared_from_this();
   auto vkimg = std::make_shared<VulkanImage>(dev);
-  vkimg->_image = img;
-  vkimg->_imageMem = imgmem;
-  vkimg->_imageView = imgview;
-  vkimg->_format = format;
+  vkimg->setImage(width, height, format, imgmem, img, imgview);
 
   return vkimg;
 }

@@ -14,6 +14,7 @@ class ShadowView : public VulkanView
 public:
   enum class ShadowType {
     PCF,
+    VSM,
   };
 
   ShadowView(const std::shared_ptr<VulkanDevice> &dev);

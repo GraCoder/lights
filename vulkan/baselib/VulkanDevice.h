@@ -41,7 +41,8 @@ public:
   std::tuple<VkImage, VkDeviceMemory> createImage(int w, int h, VkFormat format = VK_FORMAT_R8G8B8A8_UNORM);
   VkImageView createImageView(VkImage img, VkFormat format = VK_FORMAT_R8G8B8A8_UNORM);
 
-  std::shared_ptr<VulkanImage> createColorImage(uint32_t width, uint32_t height, VkFormat format = VK_FORMAT_R8G8B8A8_UNORM);
+  std::shared_ptr<VulkanImage> createColorImage(uint32_t width, uint32_t height, VkFormat format = VK_FORMAT_R8G8B8A8_UNORM,
+                                                VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
   std::shared_ptr<VulkanImage> createDepthImage(uint32_t width, uint32_t height, VkFormat format = VK_FORMAT_D24_UNORM_S8_UINT);
 
   VkShaderModule createShader(const std::string &file);
