@@ -39,11 +39,10 @@ VulkanView::~VulkanView()
   _imgui.reset();
   destroySyncObjs();
 
-  _swapchain.reset();
-
   _device->destroyCommandBuffers(_cmdBufs);
 
-  clearFrame();
+  destroyFrameBuffers();
+  _swapchain.reset();
 
   //auto surface = _swapchain->surface();
   //if (surface) {
@@ -176,18 +175,17 @@ void VulkanView::updateFrame()
 
 void VulkanView::createFrameBuffers()
 {
-  #if 0
-  std::vector<VkImageView> imgs;
-  for(int i = 0; i < count; i++) {
-    auto img = _device->createColorImage(_w, _h);
-    _images.push_back(img);
-    imgs.push_back(img->imageView());
-  }
-  _frameBufs = _swapchain->createFrameBuffer(_renderPass, imgs, _depth->imageView());
-  #else
-  _frameBufs = _swapchain->createFrameBuffer(*renderPass(), _depth->imageView());
-  #endif
+  _frameBufs = _swapchain->createFrameBuffer(*renderPass());
+}
 
+void VulkanView::destroyFrameBuffers()
+{
+  if (_imgui)
+    _imgui->destroyFrameBuffers();
+
+  for (auto &framebuf : _frameBufs)
+    vkDestroyFramebuffer(*_device, framebuf, nullptr);
+  _frameBufs.clear();
 }
 
 void VulkanView::createCommandBuffers()
@@ -261,7 +259,7 @@ void VulkanView::render()
   VkFence frameFence = _frameFences[_currentFrame];
   VK_CHECK_RESULT(vkWaitForFences(*_device, 1, &frameFence, VK_TRUE, UINT64_MAX));
 
-  VkSemaphore imageAvailable = _imageAvailableSemaphores[_currentFrame];
+  VkSemaphore imageAvailable = _imageSemaphores[_currentFrame];
   auto [result, index] = _swapchain->acquireImage(imageAvailable);
   if (!((result == VK_SUCCESS) || (result == VK_SUBOPTIMAL_KHR))) {
     VK_CHECK_RESULT(result);
@@ -293,7 +291,7 @@ void VulkanView::render()
   submitInfo.pCommandBuffers = cmdbufs;             // Command buffers(s) to execute in this batch (submission)
   submitInfo.commandBufferCount = cmdcount;         // One command buffer
 
-  VkSemaphore renderFinished = _renderFinishedSemaphores[index];
+  VkSemaphore renderFinished = _renderSemaphores[index];
   submitInfo.pWaitSemaphores = &imageAvailable;
   submitInfo.pSignalSemaphores = &renderFinished;
 
@@ -301,8 +299,8 @@ void VulkanView::render()
   VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, frameFence));
 
   {
-    _framenum = index;
-    auto present = _swapchain->queuePresent(queue, _framenum, renderFinished);
+    _frameNum = index;
+    auto present = _swapchain->queuePresent(queue, _frameNum, renderFinished);
     if (!((present == VK_SUCCESS) || (present == VK_SUBOPTIMAL_KHR))) {
       VK_CHECK_RESULT(present);
     }
@@ -320,8 +318,6 @@ void VulkanView::initialize()
 
 void VulkanView::checkFrame()
 {
-  _depth = _device->createDepthImage(_w, _h, _depthFormat);
-
   createFrameBuffers();
 
   createCommandBuffers();
@@ -331,11 +327,7 @@ void VulkanView::checkFrame()
 
 void VulkanView::clearFrame()
 {
-  for (auto& framebuf : _frameBufs)
-    vkDestroyFramebuffer(*_device, framebuf, nullptr);
-  _frameBufs.clear();
-
-  _depth.reset();
+  destroyFrameBuffers();
 }
 
 void VulkanView::createSyncObjs()
@@ -350,11 +342,11 @@ void VulkanView::createSyncObjs()
   semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
   semaphoreCreateInfo.pNext = nullptr;
 
-  _renderFinishedSemaphores.resize(count);
-  for (auto &semaphore : _imageAvailableSemaphores)
+  _renderSemaphores.resize(count);
+  for (auto &semaphore : _imageSemaphores)
     VK_CHECK_RESULT(vkCreateSemaphore(*_device, &semaphoreCreateInfo, nullptr, &semaphore));
 
-  for (auto &semaphore : _renderFinishedSemaphores)
+  for (auto &semaphore : _renderSemaphores)
     VK_CHECK_RESULT(vkCreateSemaphore(*_device, &semaphoreCreateInfo, nullptr, &semaphore));
 
   VkFenceCreateInfo fenceCreateInfo = {};
@@ -374,16 +366,16 @@ void VulkanView::destroySyncObjs()
       fence = VK_NULL_HANDLE;
     }
   }
-  for (auto &semaphore : _imageAvailableSemaphores) {
+  for (auto &semaphore : _imageSemaphores) {
     if (semaphore != VK_NULL_HANDLE) {
       vkDestroySemaphore(*_device, semaphore, nullptr);
       semaphore = VK_NULL_HANDLE;
     }
   }
 
-  for (auto semaphore : _renderFinishedSemaphores)
+  for (auto semaphore : _renderSemaphores)
     vkDestroySemaphore(*_device, semaphore, nullptr);
-  _renderFinishedSemaphores.clear();
+  _renderSemaphores.clear();
 }
 
 void VulkanView::resizeImpl(int w, int h)
@@ -391,9 +383,8 @@ void VulkanView::resizeImpl(int w, int h)
   if (w != _w && h != _h) {
     _w = w; _h = h;
 
+    destroyFrameBuffers();
     _swapchain->realize(w, h, true);
-
-    clearFrame();
     checkFrame();
 
     resize(w, h);

@@ -12,13 +12,12 @@ class VulkanDevice;
 
 class VulkanSwapChain;
 class VulkanImGUI;
-class VulkanImage;
 class VulkanPass;
 class Manipulator;
 
 class VulkanView {
 public:
-  static constexpr uint32_t MaxConcurrentFrames = 3;
+  static constexpr uint32_t MaxConcurrentFrames = 2;
 
   VulkanView(const std::shared_ptr<VulkanDevice> &dev, bool overlay = true);
 
@@ -64,10 +63,11 @@ public:
   virtual void render();
 
 protected:
-
   void updateFrame();
 
   virtual void createFrameBuffers();
+
+  virtual void destroyFrameBuffers();
 
   virtual void createCommandBuffers();
 
@@ -95,23 +95,21 @@ protected:
 
   std::vector<VkCommandBuffer> _cmdBufs;
 
+protected:
   int _w, _h;
-  uint32_t _framenum = 0;
-  uint32_t _currentFrame = 0;
+  uint32_t _frameNum = 0;
+  std::shared_ptr<Manipulator> _manip;
 
   VkFormat _depthFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 
-  std::shared_ptr<VulkanImage> _depth = {VK_NULL_HANDLE};
-  std::vector<std::shared_ptr<VulkanImage>> _images;
-
-  std::shared_ptr<Manipulator> _manip;
+  uint32_t _currentFrame = 0;
 
 private:
   std::vector<VkFramebuffer> _frameBufs;
 
-  std::array<VkSemaphore, MaxConcurrentFrames> _imageAvailableSemaphores{};
-  std::vector<VkSemaphore> _renderFinishedSemaphores;
+  std::array<VkSemaphore, MaxConcurrentFrames> _imageSemaphores{};
   std::array<VkFence, MaxConcurrentFrames> _frameFences{};
+  std::vector<VkSemaphore> _renderSemaphores;
 };
 
 #endif

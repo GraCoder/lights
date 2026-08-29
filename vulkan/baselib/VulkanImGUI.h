@@ -34,6 +34,8 @@ public:
 private:
   void dirty();
 
+  void destroyFrameBuffers();
+
   void createCanvas();
 
   void createRenderpass(VkFormat color);

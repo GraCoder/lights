@@ -462,27 +462,7 @@ void ShadowView::createFrameBuffers()
     }
   }
 
-  VkImageView attachments[2];
-  attachments[1] = _depth->imageView();
-
-  VkFramebufferCreateInfo frameBufferCreateInfo = {};
-  frameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  frameBufferCreateInfo.pNext = NULL;
-  frameBufferCreateInfo.renderPass = *renderPass();
-  frameBufferCreateInfo.attachmentCount = 2;
-  frameBufferCreateInfo.pAttachments = attachments;
-  frameBufferCreateInfo.width = _w;
-  frameBufferCreateInfo.height = _h;
-  frameBufferCreateInfo.layers = 1;
-
-  std::vector<VkFramebuffer> frameBuffers;
-  frameBuffers.resize(_swapchain->imageCount());
-  for (uint32_t i = 0; i < frameBuffers.size(); i++) {
-    attachments[0] = _swapchain->imageView(i);
-    VK_CHECK_RESULT(vkCreateFramebuffer(*_device, &frameBufferCreateInfo, nullptr, &frameBuffers[i]));
-  }
-
-  setFrameBuffers(frameBuffers);
+  setFrameBuffers(_swapchain->createFrameBuffer(*renderPass()));
 
   {
     for (int i = 0; i < _hudFrames.size(); i++)
@@ -506,6 +486,19 @@ void ShadowView::createFrameBuffers()
     }
     _hudFrames = std::move(frameBuffers);
   }
+}
+
+void ShadowView::destroyFrameBuffers()
+{
+  for (auto frame : _depthFrames)
+    vkDestroyFramebuffer(*device(), frame, nullptr);
+  _depthFrames.clear();
+
+  for (auto frame : _hudFrames)
+    vkDestroyFramebuffer(*device(), frame, nullptr);
+  _hudFrames.clear();
+
+  VulkanView::destroyFrameBuffers();
 }
 
 void ShadowView::createPipeline()

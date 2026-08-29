@@ -1,6 +1,7 @@
 #include "VulkanSwapChain.h"
 
 #include "VulkanDevice.h"
+#include "VulkanImage.h"
 #include "VulkanInstance.h"
 #include "VulkanTools.h"
 
@@ -27,6 +28,8 @@ VulkanSwapChain::VulkanSwapChain(const std::shared_ptr<VulkanDevice> &dev)
 
 VulkanSwapChain::~VulkanSwapChain()
 {
+  _depthImages.clear();
+
   if (_swapChain != VK_NULL_HANDLE) {
     for (uint32_t i = 0; i < _images.size(); i++) {
       vkDestroyImageView(*_device, _images[i].view, nullptr);
@@ -110,6 +113,8 @@ void VulkanSwapChain::realize(uint32_t width, uint32_t height, bool vsync, bool 
   vkDeviceWaitIdle(*_device);
 
   VkSwapchainKHR oldchain = _swapChain;
+
+  _depthImages.clear();
 
   VkSurfaceCapabilitiesKHR surfaceCaps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_device->physicalDevice(), _surface, &surfaceCaps);
@@ -213,6 +218,7 @@ void VulkanSwapChain::realize(uint32_t width, uint32_t height, bool vsync, bool 
 
   // Get the swap chain buffers containing the image and imageview
   _images.resize(imageCount);
+  _depthImages.resize(imageCount);
   for (uint32_t i = 0; i < imageCount; i++) {
     VkImageViewCreateInfo colorAttachmentView = {};
     colorAttachmentView.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -232,7 +238,36 @@ void VulkanSwapChain::realize(uint32_t width, uint32_t height, bool vsync, bool 
     colorAttachmentView.image = _images[i].image;
 
     VK_CHECK_RESULT(vkCreateImageView(*_device, &colorAttachmentView, nullptr, &_images[i].view));
+    _depthImages[i] = _device->createDepthImage(width, height);
   }
+}
+
+std::vector<VkFramebuffer> VulkanSwapChain::createFrameBuffer(VkRenderPass vkPass)
+{
+  assert(_images.size() == _depthImages.size());
+
+  VkImageView attachments[2];
+  VkFramebufferCreateInfo frameBufferCreateInfo = {};
+  frameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  frameBufferCreateInfo.renderPass = vkPass;
+  frameBufferCreateInfo.attachmentCount = 2;
+  frameBufferCreateInfo.pAttachments = attachments;
+  frameBufferCreateInfo.width = _width;
+  frameBufferCreateInfo.height = _height;
+  frameBufferCreateInfo.layers = 1;
+
+  std::vector<VkFramebuffer> frameBuffers(_images.size());
+  for (uint32_t i = 0; i < frameBuffers.size(); i++) {
+    attachments[0] = _images[i].view;
+    attachments[1] = _depthImages[i]->imageView();
+    VK_CHECK_RESULT(vkCreateFramebuffer(*_device, &frameBufferCreateInfo, nullptr, &frameBuffers[i]));
+  }
+  return frameBuffers;
+}
+
+VkImageView VulkanSwapChain::depthImageView(int idx)
+{
+  return _depthImages[idx]->imageView();
 }
 
 std::vector<VkFramebuffer> VulkanSwapChain::createFrameBuffer(VkRenderPass vkPass, const VkImageView& depth)

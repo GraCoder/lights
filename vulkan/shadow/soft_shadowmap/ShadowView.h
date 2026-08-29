@@ -34,6 +34,7 @@ public:
   void buildCommandBuffer(VkCommandBuffer cmdBuf) override;
   void createPipeLayout();
   void createFrameBuffers();
+  void destroyFrameBuffers() override;
   void createPipeline();
 
 private:

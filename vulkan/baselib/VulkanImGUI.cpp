@@ -74,8 +74,7 @@ VulkanImGUI::~VulkanImGUI()
   if(_descriptorLayout)
     vkDestroyDescriptorSetLayout(*device, _descriptorLayout, 0);
 
-  for (auto& frame : _frameBufs)
-    vkDestroyFramebuffer(*device, frame, nullptr);
+  destroyFrameBuffers();
 
   if (_renderPass)
     vkDestroyRenderPass(*device, _renderPass, nullptr);
@@ -237,16 +236,21 @@ void VulkanImGUI::createPipeline(VkFormat clrformat)
 
 void VulkanImGUI::checkFrame(int count, VkFormat clrformat)
 {
-  auto device = _view->device();
-
-  for (auto& framebuf : _frameBufs)
-    vkDestroyFramebuffer(*device, framebuf, nullptr);
+  destroyFrameBuffers();
 
   _frameBufs = _view->swapchain()->createFrameBuffer(_renderPass, VK_NULL_HANDLE);
   if (VulkanView::MaxConcurrentFrames != _cmdBufs.size()) {
     _view->device()->destroyCommandBuffers(_cmdBufs);
     _cmdBufs = _view->device()->createCommandBuffers(VulkanView::MaxConcurrentFrames);
   }
+}
+
+void VulkanImGUI::destroyFrameBuffers()
+{
+  auto device = _view->device();
+  for (auto frame : _frameBufs)
+    vkDestroyFramebuffer(*device, frame, nullptr);
+  _frameBufs.clear();
 }
 
 bool VulkanImGUI::updateFrame()

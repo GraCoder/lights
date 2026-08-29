@@ -146,8 +146,7 @@ public:
   void reqResource()
   {
     int count = _swapchain->imageCount();
-    _depth = _swapchain->createDepthImage(_w, _h);
-    _frameBufs = _swapchain->createFrameBuffer(_renderPass, _depth);
+    _frameBufs = _swapchain->createFrameBuffer(_renderPass);
 
     buildCommandBuffers(_frameBufs, _renderPass);
 
@@ -164,10 +163,6 @@ public:
       vkDestroyFramebuffer(*_device, framebuf, nullptr);
     _frameBufs.clear();
 
-    vkDestroyImageView(*_device, _depth.view, nullptr);
-    vkDestroyImage(*_device, _depth.image, nullptr);
-    vkFreeMemory(*_device, _depth.mem, nullptr);
-    _depth = {VK_NULL_HANDLE};
   }
 
   void createSyncObject()
@@ -241,8 +236,8 @@ public:
               vkDeviceWaitIdle(*_device);
               _w = event.window.data1;
               _h = event.window.data2;
-              _swapchain->realize(_w, _h, true);
               freeResource();
+              _swapchain->realize(_w, _h, true);
               reqResource();
               updateUbo();
               update();
@@ -768,8 +763,6 @@ private:
   uint32_t _frame = 0;
 
   VkRenderPass _renderPass = VK_NULL_HANDLE;
-  VulkanSwapChain::ImageUnit _depth;
-
   VkSemaphore _presentSemaphore;
   VkSemaphore _renderSemaphore;
 

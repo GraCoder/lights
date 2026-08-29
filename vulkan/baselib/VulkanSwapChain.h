@@ -26,6 +26,10 @@ public:
 
   VkImageView imageView(int idx) { return _images[idx].view; }
 
+  VkImageView depthImageView(int idx);
+
+  std::vector<VkFramebuffer> createFrameBuffer(VkRenderPass vkPass);
+
   std::vector<VkFramebuffer> createFrameBuffer(VkRenderPass vkPass, const VkImageView &depth);
 
   std::vector<VkFramebuffer> createFrameBuffer(VkRenderPass vkPass, const std::vector<VkImageView> &color, const VkImageView &depth);
@@ -50,6 +54,7 @@ private:
     VkImageView view;
   };
   std::vector<SwapChainImage> _images;
+  std::vector<std::shared_ptr<VulkanImage>> _depthImages;
 
   //PFN_vkGetPhysicalDeviceSurfaceSupportKHR fpGetPhysicalDeviceSurfaceSupportKHR;
   //PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR fpGetPhysicalDeviceSurfaceCapabilitiesKHR;
