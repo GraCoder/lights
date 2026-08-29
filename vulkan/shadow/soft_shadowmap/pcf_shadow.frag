@@ -27,30 +27,27 @@ layout(set = 3, binding = 0) uniform ShadowMatrix{
   mat4 proj;
   mat4 view;
   mat4 mvp;
+  mat4 pers;
+  vec4 options;
 } shadow_matrix;
 
-layout(set = 3, binding = 1) uniform sampler2D shadow_tex;
+layout(set = 3, binding = 1) uniform sampler2DShadow shadow_tex;
 
 #define SHADOW_SAMPLING_PCF_HARD 0
 #define SHADOW_SAMPLING_PCF_LOW 1
 
-float shadow_depth(vec2 uv)
+float shadow_visible(vec2 uv, float depth)
 {
-  return texture(shadow_tex, uv).r;
+  return texture(shadow_tex, vec3(uv, depth));
 }
 
-float shadow_visible(vec2 uv, float depth, float bias)
+float ShadowSample_PCF_Hard(vec2 suv, float depth)
 {
-  return step(0.0, shadow_depth(uv) + bias - depth);
-}
-
-float ShadowSample_PCF_Hard(vec2 suv, float depth, float bias)
-{
-  return shadow_visible(suv, depth, bias);
+  return shadow_visible(suv, depth);
 }
 
 // 4-tap Gaussian approximation ported from Filament's ShadowSample_PCF_Low.
-float ShadowSample_PCF_Low(vec2 suv, float depth, float bias)
+float ShadowSample_PCF_Low(vec2 suv, float depth)
 {
   vec2 size = vec2(textureSize(shadow_tex, 0));
   vec2 texelSize = vec2(1.0) / size;
@@ -85,10 +82,10 @@ float ShadowSample_PCF_Low(vec2 suv, float depth, float bias)
   uv3 = clamp(uv3, vec2(0.0), vec2(1.0));
 
   float sum = 0.0;
-  sum += w0 * shadow_visible(uv0, depth, bias);
-  sum += w1 * shadow_visible(uv1, depth, bias);
-  sum += w2 * shadow_visible(uv2, depth, bias);
-  sum += w3 * shadow_visible(uv3, depth, bias);
+  sum += w0 * shadow_visible(uv0, depth);
+  sum += w1 * shadow_visible(uv1, depth);
+  sum += w2 * shadow_visible(uv2, depth);
+  sum += w3 * shadow_visible(uv3, depth);
 
   return sum * 0.0625;
 }
@@ -112,21 +109,26 @@ void main(void)
 
   float visibility = 1.0;
 
-  if (vp_suv.x > -1.0 && vp_suv.x < 1.0 &&
-      vp_suv.y > -1.0 && vp_suv.y < 1.0 &&
-      vp_suv.z >= 0.0 && vp_suv.z <= 1.0)
+  vec3 shadow_light = normalize(shadow_matrix.light.xyz);
+  float shadow_nol = clamp(dot(n, shadow_light), 0.0, 1.0);
+  float normal_offset = shadow_matrix.options.y * shadow_matrix.options.z *
+      sqrt(max(1.0 - shadow_nol * shadow_nol, 0.0));
+  vec3 receiver_pos = vp_pos + shadow_light * shadow_matrix.options.x + n * normal_offset;
+  vec4 biased_suv = shadow_matrix.mvp * vec4(receiver_pos, 1.0);
+  biased_suv /= biased_suv.w;
+
+  if (biased_suv.x > -1.0 && biased_suv.x < 1.0 &&
+      biased_suv.y > -1.0 && biased_suv.y < 1.0 &&
+      biased_suv.z >= 0.0 && biased_suv.z <= 1.0)
   {
-    vec2 suv = vp_suv.xy;
+    vec2 suv = biased_suv.xy;
     suv = (suv + vec2(1.0)) * 0.5;
     suv.y = 1.0 - suv.y;
 
-    float light_angle = clamp(dot(n, normalize(shadow_matrix.light.xyz)), 0.0, 1.0);
-    float depbias = tan(acos(light_angle)) * 0.0002;
-    depbias = clamp(depbias, 0.00002, 0.002);
     if (shadow_matrix.light.w >= 0.5)
-      visibility = ShadowSample_PCF_Low(suv, vp_suv.z, depbias);
+      visibility = ShadowSample_PCF_Low(suv, biased_suv.z);
     else
-      visibility = ShadowSample_PCF_Hard(suv, vp_suv.z, depbias);
+      visibility = ShadowSample_PCF_Hard(suv, biased_suv.z);
   }
 
   vec3 ambient = base_color.rgb * 0.05;

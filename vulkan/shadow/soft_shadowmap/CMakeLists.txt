@@ -3,12 +3,15 @@ cmake_minimum_required(VERSION 3.24)
 set(target_name soft_shadowmap)
 
 set(hdr
+	PCFShadow.h
+	ShadowTechnique.h
 	ShadowView.h
 	ShadowPipeline.h
 )
 
 set(src
 	main.cpp
+	PCFShadow.cpp
 	ShadowView.cpp
 	ShadowPipeline.cpp
 )

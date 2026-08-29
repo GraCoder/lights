@@ -11,6 +11,8 @@ HUDRect::HUDRect(const std::shared_ptr<VulkanDevice>& dev) : _device(dev)
 
 HUDRect::~HUDRect()
 {
+  if (_set && _pool)
+    vkFreeDescriptorSets(*_device, _pool, 1, &_set);
 }
 
 void HUDRect::setGeometry(float x, float y, float w, float h)
@@ -41,6 +43,12 @@ void HUDRect::setGeometry(float x, float y, float w, float h)
 
 void HUDRect::setTexture(HUDPipeline *pipeline, VulkanTexture *tex, VkDescriptorPool pool)
 {
+  if (_set && _pool) {
+    vkFreeDescriptorSets(*_device, _pool, 1, &_set);
+    _set = VK_NULL_HANDLE;
+  }
+  _pool = pool;
+
   auto desLayout = pipeline->textureLayout();
   VkDescriptorSetAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;

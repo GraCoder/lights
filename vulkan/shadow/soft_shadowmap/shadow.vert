@@ -21,6 +21,8 @@ layout(set = 3, binding = 0) uniform ShadowMatrix{
   mat4 proj;
   mat4 view;
   mat4 mvp;
+  mat4 pers;
+  vec4 options;
 } shadow_matrix;
 
 

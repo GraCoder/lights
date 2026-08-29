@@ -22,4 +22,5 @@ private:
   std::shared_ptr<VulkanBuffer> _buffer;
 
   VkDescriptorSet _set = VK_NULL_HANDLE;
+  VkDescriptorPool _pool = VK_NULL_HANDLE;
 };

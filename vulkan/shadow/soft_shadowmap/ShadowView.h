@@ -1,20 +1,25 @@
 #pragma once
 
-#include "VulkanView.h"
-#include "ShadowPipeline.h"
-#include "RenderData.h"
-#include "MeshInstance.h"
-#include "DepthPipeline.h"
-#include "DepthPass.h"
 #include "HUDPass.h"
 #include "HUDPipeline.h"
 #include "HUDRect.h"
+#include "MeshInstance.h"
+#include "RenderData.h"
+#include "VulkanView.h"
 
-class ShadowView : public VulkanView {
+class ShadowTechnique;
+
+class ShadowView : public VulkanView
+{
 public:
+  enum class ShadowType {
+    PCF,
+  };
+
   ShadowView(const std::shared_ptr<VulkanDevice> &dev);
   ~ShadowView();
 
+  void setShadowType(ShadowType type);
   void setUniforms();
   void updateUbo();
   void updateLight();
@@ -28,7 +33,6 @@ public:
   void keyUp(int key);
 
   void createCommandBuffers();
-  void buildDepthCommandBuffer(VkCommandBuffer cmdBuf);
 
   void recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t imageIndex) override;
   void buildCommandBuffer(VkCommandBuffer cmdBuf) override;
@@ -45,31 +49,17 @@ private:
 
   VkDescriptorPool _descriptPool = VK_NULL_HANDLE;
 
-  std::vector<VkFramebuffer> _depthFrames;
-
-  std::shared_ptr<DepthPass> _depthPass;
-
-  std::shared_ptr<ShadowPipeline> _shadowPipeline;
-  std::shared_ptr<DepthPipeline> _depthPipeline;
-
-  std::shared_ptr<VulkanImage> _depthImage;
+  std::unique_ptr<ShadowTechnique> _shadow;
+  ShadowType _shadowType = ShadowType::PCF;
+  bool _shadowRealized = false;
 
   VkDescriptorSet _matrixSet = VK_NULL_HANDLE;
   VkDescriptorSet _lightSet = VK_NULL_HANDLE;
   VkDescriptorSet _basicTexSet = VK_NULL_HANDLE;
 
-  VkDescriptorSet _depthMatrixSet = VK_NULL_HANDLE;
-  std::shared_ptr<VulkanBuffer> _depthMatrixBuf;
-
-  VkDescriptorSet _shadowSet = VK_NULL_HANDLE;
-  std::shared_ptr<VulkanBuffer> _shadowBuf;
-  std::shared_ptr<VulkanTexture> _shadowTexture;
-
   std::shared_ptr<VulkanBuffer> _uboBuf, _light;
 
-  MVP _matrix, _depthMatrix;
-  ShadowMatrix _shadowMatrix;
-  float _pcfMode = 1;
+  MVP _matrix;
 
   std::shared_ptr<MeshInstance> _model;
 

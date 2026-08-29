@@ -1,26 +1,21 @@
 #include "ShadowView.h"
 
-#include "VulkanDebug.h"
-#include "VulkanView.h"
-#include "VulkanInstance.h"
-#include "VulkanDevice.h"
-#include "VulkanSwapChain.h"
-#include "VulkanBuffer.h"
-#include "VulkanImage.h"
-#include "VulkanTools.h"
-#include "VulkanPass.h"
+#include "PCFShadow.h"
+#include "ShadowTechnique.h"
+
 #include "Manipulator.h"
-#include "DepthPass.h"
-#include "VulkanInitializers.hpp"
+#include "VulkanBuffer.h"
+#include "VulkanDebug.h"
+#include "VulkanDevice.h"
+#include "VulkanInstance.h"
+#include "VulkanPass.h"
+#include "VulkanSwapChain.h"
+#include "VulkanTools.h"
+#include "VulkanView.h"
 
-#include "VulkanPipeline.h"
-#include "TexturePipeline.h"
-#include "DepthPipeline.h"
-
-#include "SimpleShape.h"
-#include "RenderData.h"
 #include "GLTFLoader.h"
 #include "MeshInstance.h"
+#include "RenderData.h"
 
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_vulkan.h"
@@ -37,18 +32,14 @@ ParallelLight light;
 
 VulkanInstance &inst = VulkanInstance::instance();
 
-ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev) : VulkanView(dev, false)
+ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev)
+  : VulkanView(dev, false)
 {
   GLTFLoader loader;
   _model = loader.loadFile(ROOT_DIR "/data/plane_sphere.glb");
   //_tree->set_transform(tg::translate(tg::vec3(0, 1, 0)) * tg::scale(4.0f));
 
-  _shadowPipeline = std::make_shared<ShadowPipeline>(dev);
-  _depthPipeline = std::make_shared<DepthPipeline>(dev, 2048, 2048);
-
-  _depthImage = _device->createDepthImage(2048, 2048, VK_FORMAT_D32_SFLOAT);
-
-  _depthPass = std::make_shared<DepthPass>(dev);
+  setShadowType(ShadowType::PCF);
 
   {
     _basicTexture = std::make_shared<VulkanTexture>();
@@ -92,54 +83,57 @@ ShadowView::~ShadowView()
     _indexMem = VK_NULL_HANDLE;
   }
 
+  for (int i = 0; i < _hudFrames.size(); i++) {
+    vkDestroyFramebuffer(*_device, _hudFrames[i], 0);
+  }
+  _hudFrames.clear();
+
+  if (_shadow)
+    _shadow->destroyFrameBuffers();
+  _shadow.reset();
+  _hudRect.reset();
+
   if (_descriptPool) {
     vkDestroyDescriptorPool(*device(), _descriptPool, nullptr);
     _descriptPool = VK_NULL_HANDLE;
   }
+}
 
-  for (int i = 0; i < _depthFrames.size(); i++) {
-    vkDestroyFramebuffer(*_device, _depthFrames[i], 0);
-  }
-  _depthFrames.clear();
+void ShadowView::setShadowType(ShadowType type)
+{
+  if (_shadow && _shadowType == type)
+    return;
 
-  for (int i = 0; i < _hudFrames.size(); i++)
-  {
-    vkDestroyFramebuffer(*_device, _hudFrames[i], 0);
+  bool rebuild = _shadowRealized;
+  if (rebuild) {
+    vkDeviceWaitIdle(*device());
+    _shadow->destroyFrameBuffers();
   }
-  _hudFrames.clear();
+
+  _shadow.reset();
+  _shadowType = type;
+  switch (type) {
+  case ShadowType::PCF:
+    _shadow = std::make_unique<PCFShadow>(_device);
+    break;
+  }
+
+  _shadow->initializeUniforms();
+  if (rebuild) {
+    _shadow->realize(renderPass(), _descriptPool);
+    _shadow->createFrameBuffers(_swapchain->imageCount());
+    _hudRect->setTexture(_hudPipeline.get(), _shadow->debugTexture(), _descriptPool);
+  }
 }
 
 void ShadowView::setUniforms()
 {
-  light.lightDir = tg::normalize(vec3(1, 1, 1));
-  light.lightColor = vec3(10);
+  light.lightDir = tg::normalize(tg::vec3(1, 1, 1));
+  light.lightColor = tg::vec3(10);
 
   uint8_t *data = 0;
   VK_CHECK_RESULT(vkMapMemory(*device(), _light->memory(), 0, sizeof(light), 0, (void **)&data));
   memcpy(data, &light, sizeof(light));
-
-  auto vp = tg::vec3(10, 10, 0);
-  _depthMatrixBuf = device()->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(MVP));
-  _depthMatrix.view = tg::lookat(vp, tg::vec3(0, 0, 0), tg::vec3(0, 1, 0));
-  _depthMatrix.prj = tg::ortho<float>(-5, 5, -5, 5, 0.1, 20);
-  //_depth_matrix.prj = tg::perspective<float>(fov, 1, 1, 400);
-
-  VK_CHECK_RESULT(vkMapMemory(*device(), _depthMatrixBuf->memory(), 0, sizeof(MVP), 0, (void **)&data));
-  memcpy(data, &_depthMatrix, sizeof(MVP));
-
-  {
-    _shadowBuf = device()->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                          sizeof(ShadowMatrix));
-    _shadowMatrix.light = tg::normalize(vp);
-    _shadowMatrix.light.w() = _pcfMode;
-    _shadowMatrix.view = _depthMatrix.view;
-    _shadowMatrix.prj = _depthMatrix.prj;
-    _shadowMatrix.mvp = _depthMatrix.prj * _depthMatrix.view;
-
-    VK_CHECK_RESULT(vkMapMemory(*device(), _shadowBuf->memory(), 0, sizeof(ShadowMatrix), 0, (void **)&data));
-    memcpy(data, &_shadowMatrix, sizeof(ShadowMatrix));
-    vkUnmapMemory(*device(), _shadowBuf->memory());
-  }
 }
 
 void ShadowView::updateUbo()
@@ -183,14 +177,7 @@ void ShadowView::keyUp(int key)
   if (key == SDL_SCANCODE_SPACE)
     updateUbo();
   else if (key == SDL_SCANCODE_P) {
-    _pcfMode = _pcfMode >= 0.5f ? 0.f : 1.f;
-    _shadowMatrix.light.w() = _pcfMode;
-
-    uint8_t *data = 0;
-    VK_CHECK_RESULT(vkMapMemory(*device(), _shadowBuf->memory(), 0, sizeof(_shadowMatrix), 0, (void **)&data));
-    memcpy(data, &_shadowMatrix, sizeof(_shadowMatrix));
-    vkUnmapMemory(*device(), _shadowBuf->memory());
-
+    _shadow->toggleFilterMode();
     updateUbo();
   }
 }
@@ -204,29 +191,14 @@ void ShadowView::createCommandBuffers()
   }
 }
 
-void ShadowView::buildDepthCommandBuffer(VkCommandBuffer cmdBuf)
-{
-  tg::mat4 mt;
-  mt.identity();
-  if (_depthPipeline && _depthPipeline->valid()) {
-    vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_depthPipeline);
-    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _depthPipeline->pipeLayout(), 0, 1, &_depthMatrixSet, 0, nullptr);
-
-    vkCmdPushConstants(cmdBuf, _depthPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Transform), &mt);
-
-    _model->buildCommandBuffer(cmdBuf, _depthPipeline->pipeLayout());
-  }
-}
-
 void ShadowView::recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t i)
 {
-  if (!_depthPipeline->valid() || !_shadowPipeline->valid())
+  if (!_shadow || !_shadow->valid())
     return;
 
   auto &framebuffers = frameBuffers();
   auto &activeRenderPass = *renderPass();
   assert(i < framebuffers.size());
-  assert(i < _depthFrames.size());
   assert(i < _hudFrames.size());
 
   VkCommandBufferBeginInfo bufInfo = {};
@@ -245,69 +217,59 @@ void ShadowView::recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t i)
   renderPassBeginInfo.clearValueCount = 1;
   renderPassBeginInfo.pClearValues = clearValues;
 
-    renderPassBeginInfo.renderPass = *_depthPass;
-    renderPassBeginInfo.framebuffer = _depthFrames[i];
-    renderPassBeginInfo.renderArea.extent.width = _depthImage->width();
-    renderPassBeginInfo.renderArea.extent.height = _depthImage->height();
-    VK_CHECK_RESULT(vkBeginCommandBuffer(cmdBuf, &bufInfo));
+  VK_CHECK_RESULT(vkBeginCommandBuffer(cmdBuf, &bufInfo));
 
-    clearValues[0].depthStencil = {1.f, 0};
-    renderPassBeginInfo.clearValueCount = 1;
+  _shadow->recordShadowPass(cmdBuf, i, *_model);
+
+  clearValues[0].color = {{0.0, 0.0, 0.2, 1.0}};
+  clearValues[1].depthStencil = {1.f, 0};
+  renderPassBeginInfo.clearValueCount = 2;
+
+  renderPassBeginInfo.renderPass = activeRenderPass;
+  renderPassBeginInfo.framebuffer = framebuffers[i];
+  renderPassBeginInfo.renderArea.extent.width = width();
+  renderPassBeginInfo.renderArea.extent.height = height();
+
+  vkCmdBeginRenderPass(cmdBuf, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  buildCommandBuffer(cmdBuf);
+
+  vkCmdEndRenderPass(cmdBuf);
+
+  {
+    renderPassBeginInfo.renderPass = *_hudPass;
+    renderPassBeginInfo.framebuffer = _hudFrames[i];
+    renderPassBeginInfo.clearValueCount = 0;
     vkCmdBeginRenderPass(cmdBuf, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    buildDepthCommandBuffer(cmdBuf);
-
-    vkCmdEndRenderPass(cmdBuf);
-
-    clearValues[0].color = {{0.0, 0.0, 0.2, 1.0}};
-    clearValues[1].depthStencil = {1.f, 0};
-    renderPassBeginInfo.clearValueCount = 2;
-
-    renderPassBeginInfo.renderPass = activeRenderPass;
-    renderPassBeginInfo.framebuffer = framebuffers[i];
-    renderPassBeginInfo.renderArea.extent.width = width();
-    renderPassBeginInfo.renderArea.extent.height = height();
-
-    vkCmdBeginRenderPass(cmdBuf, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    buildCommandBuffer(cmdBuf);
-
-    vkCmdEndRenderPass(cmdBuf);
 
     {
-      renderPassBeginInfo.renderPass = *_hudPass;
-      renderPassBeginInfo.framebuffer = _hudFrames[i];
-      renderPassBeginInfo.clearValueCount = 0;
-      vkCmdBeginRenderPass(cmdBuf, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-      {
-        VkViewport viewport = {};
-        viewport.width = _w;
-        viewport.height = _h;
-        viewport.minDepth = 0;
-        viewport.maxDepth = 1;
-        vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
-      }
-
-      {
-        VkRect2D scissor = {};
-        scissor.extent.width = _w;
-        scissor.extent.height = _h;
-        scissor.offset.x = 0;
-        scissor.offset.y = 0;
-        vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
-      }
-
-      vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_hudPipeline);
-      tg::mat4 mat;
-      mat.identity();
-      mat[0][0] = 2.0 / width();
-      mat[1][1] = 2.0 / height();
-      mat = tg::translate(-1.f, -1.f, 0.f) * mat;
-      vkCmdPushConstants(cmdBuf, _hudPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mat), &mat);
-      _hudRect->fillCommand(cmdBuf, _hudPipeline.get());
-      vkCmdEndRenderPass(cmdBuf);
+      VkViewport viewport = {};
+      viewport.width = _w;
+      viewport.height = _h;
+      viewport.minDepth = 0;
+      viewport.maxDepth = 1;
+      vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
     }
+
+    {
+      VkRect2D scissor = {};
+      scissor.extent.width = _w;
+      scissor.extent.height = _h;
+      scissor.offset.x = 0;
+      scissor.offset.y = 0;
+      vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
+    }
+
+    vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_hudPipeline);
+    tg::mat4 mat;
+    mat.identity();
+    mat[0][0] = 2.0 / width();
+    mat[1][1] = 2.0 / height();
+    mat = tg::translate(-1.f, -1.f, 0.f) * mat;
+    vkCmdPushConstants(cmdBuf, _hudPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mat), &mat);
+    _hudRect->fillCommand(cmdBuf, _hudPipeline.get());
+    vkCmdEndRenderPass(cmdBuf);
+  }
 
   VK_CHECK_RESULT(vkEndCommandBuffer(cmdBuf));
 }
@@ -335,18 +297,12 @@ void ShadowView::buildCommandBuffer(VkCommandBuffer cmdBuf)
     vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
   }
 
-  if (_shadowPipeline && _shadowPipeline->valid()) {
-    vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_shadowPipeline);
-
-    VkDescriptorSet dessets[2] = {_matrixSet, _lightSet};
-    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 0, 2, dessets, 0, nullptr);
-
-    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 3, 1, &_shadowSet, 0, 0);
-
-    vkCmdPushConstants(cmdBuf, _shadowPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Transform), &mt);
+  if (_shadow && _shadow->valid()) {
+    _shadow->bindLighting(cmdBuf, _matrixSet, _lightSet);
+    vkCmdPushConstants(cmdBuf, _shadow->lightingPipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Transform), &mt);
   }
 
-  _model->buildTextureCommandBuffer(cmdBuf, _shadowPipeline->pipeLayout(), 2);
+  _model->buildTextureCommandBuffer(cmdBuf, _shadow->lightingPipelineLayout(), 2);
 }
 
 void ShadowView::createPipeLayout()
@@ -360,6 +316,7 @@ void ShadowView::createPipeLayout()
   VkDescriptorPoolCreateInfo descriptorPoolInfo = {};
   descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   descriptorPoolInfo.pNext = nullptr;
+  descriptorPoolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
   descriptorPoolInfo.poolSizeCount = 2;
   descriptorPoolInfo.pPoolSizes = typeCounts;
   descriptorPoolInfo.maxSets = 10;
@@ -369,8 +326,8 @@ void ShadowView::createPipeLayout()
   _descriptPool = desPool;
 
   //----------------------------------------------------------------------------------------------------
-  auto mlayout = _shadowPipeline->matrixLayout();
-  auto llayout = _shadowPipeline->lightLayout();
+  auto mlayout = _shadow->matrixLayout();
+  auto llayout = _shadow->lightLayout();
 
   VkDescriptorSetAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -441,26 +398,7 @@ void ShadowView::createPipeLayout()
 
 void ShadowView::createFrameBuffers()
 {
-  {
-    auto view = _depthImage->imageView();
-    VkFramebufferCreateInfo frameBufferCreateInfo = {};
-    frameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    frameBufferCreateInfo.pNext = NULL;
-    frameBufferCreateInfo.renderPass = *_depthPass;
-    frameBufferCreateInfo.attachmentCount = 1;
-    frameBufferCreateInfo.pAttachments = &view;
-    frameBufferCreateInfo.width = _depthImage->width();
-    frameBufferCreateInfo.height = _depthImage->height();
-    frameBufferCreateInfo.layers = 1;
-
-    for (int i = 0; i < _depthFrames.size(); i++)
-      vkDestroyFramebuffer(*device(), _depthFrames[i], 0);
-
-    _depthFrames.resize(_swapchain->imageCount());
-    for (int i = 0; i < _depthFrames.size(); i++) {
-      VK_CHECK_RESULT(vkCreateFramebuffer(*_device, &frameBufferCreateInfo, nullptr, &_depthFrames[i]));
-    }
-  }
+  _shadow->createFrameBuffers(_swapchain->imageCount());
 
   setFrameBuffers(_swapchain->createFrameBuffer(*renderPass()));
 
@@ -490,9 +428,8 @@ void ShadowView::createFrameBuffers()
 
 void ShadowView::destroyFrameBuffers()
 {
-  for (auto frame : _depthFrames)
-    vkDestroyFramebuffer(*device(), frame, nullptr);
-  _depthFrames.clear();
+  if (_shadow)
+    _shadow->destroyFrameBuffers();
 
   for (auto frame : _hudFrames)
     vkDestroyFramebuffer(*device(), frame, nullptr);
@@ -503,82 +440,12 @@ void ShadowView::destroyFrameBuffers()
 
 void ShadowView::createPipeline()
 {
-  if (_depthPipeline) {
-    _depthPipeline->realize(_depthPass.get());
-
-    auto desLayout = _depthPipeline->matrixLayout();
-    VkDescriptorSetAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = _descriptPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &desLayout;
-
-    VK_CHECK_RESULT(vkAllocateDescriptorSets(*device(), &allocInfo, &_depthMatrixSet));
-
-    int sz = sizeof(_depthMatrix);
-    VkDescriptorBufferInfo descriptor = {};
-    descriptor.buffer = *_depthMatrixBuf;
-    descriptor.offset = 0;
-    descriptor.range = sz;
-
-    VkWriteDescriptorSet writeDescriptorSet = {};
-    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSet.dstSet = _depthMatrixSet;
-    writeDescriptorSet.descriptorCount = 1;
-    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writeDescriptorSet.pBufferInfo = &descriptor;
-    writeDescriptorSet.dstBinding = 0;
-    vkUpdateDescriptorSets(*device(), 1, &writeDescriptorSet, 0, nullptr);
-  }
-
-  _shadowPipeline->realize(renderPass());
-
+  _shadow->realize(renderPass(), _descriptPool);
+  _shadowRealized = true;
   _model->realize(_device);
 
   {
-    auto slayout = _shadowPipeline->shadowLayout();
-    VkDescriptorSetAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = _descriptPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &slayout;
-
-    VK_CHECK_RESULT(vkAllocateDescriptorSets(*device(), &allocInfo, &_shadowSet));
-
-    int sz = sizeof(ShadowMatrix);
-    VkDescriptorBufferInfo descriptor = {};
-    descriptor.buffer = *_shadowBuf;
-    descriptor.offset = 0;
-    descriptor.range = sz;
-
-    VkWriteDescriptorSet writeDescriptorSet = {};
-    writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writeDescriptorSet.dstSet = _shadowSet;
-    writeDescriptorSet.descriptorCount = 1;
-    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writeDescriptorSet.pBufferInfo = &descriptor;
-    writeDescriptorSet.dstBinding = 0;
-    vkUpdateDescriptorSets(*device(), 1, &writeDescriptorSet, 0, nullptr);
-
-    _shadowTexture = std::make_shared<VulkanTexture>();
-    _shadowTexture->realize(_depthImage);
-
-    VkDescriptorImageInfo depthDescriptor = {};
-    depthDescriptor.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    depthDescriptor.imageView = _shadowTexture->imageView();
-    depthDescriptor.sampler = _shadowTexture->sampler();
-
-    writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writeDescriptorSet.dstBinding = 1;
-    writeDescriptorSet.pBufferInfo = 0;
-    writeDescriptorSet.pImageInfo = &depthDescriptor;
-
-    vkUpdateDescriptorSets(*device(), 1, &writeDescriptorSet, 0, nullptr);
-  }
-
-  {
     _hudPipeline->realize(_hudPass.get());
-    _hudRect->setTexture(_hudPipeline.get(), _shadowTexture.get(), _descriptPool);
+    _hudRect->setTexture(_hudPipeline.get(), _shadow->debugTexture(), _descriptPool);
   }
-
 }

@@ -11,7 +11,10 @@ using tg::vec3;
 #define SHADER_DIR ROOT_DIR##"/vulkan/baselib/shaders"
 
 
-DepthPipeline::DepthPipeline(const std::shared_ptr<VulkanDevice>& dev, int w, int h) : Base(dev), _w(w), _h(h)
+DepthPipeline::DepthPipeline(const std::shared_ptr<VulkanDevice>& dev, int w, int h,
+                             float depthBiasConstant, float depthBiasSlope)
+    : Base(dev), _w(w), _h(h),
+      _depthBiasConstant(depthBiasConstant), _depthBiasSlope(depthBiasSlope)
 {
 }
 
@@ -37,7 +40,11 @@ void DepthPipeline::realize(VulkanPass *renderPass, int subpass)
   rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
   rasterizationState.depthClampEnable = VK_FALSE;
   rasterizationState.rasterizerDiscardEnable = VK_FALSE;
-  rasterizationState.depthBiasEnable = VK_FALSE;
+  rasterizationState.depthBiasEnable =
+      (_depthBiasConstant != 0.0f || _depthBiasSlope != 0.0f) ? VK_TRUE : VK_FALSE;
+  rasterizationState.depthBiasConstantFactor = _depthBiasConstant;
+  rasterizationState.depthBiasSlopeFactor = _depthBiasSlope;
+  rasterizationState.depthBiasClamp = 0.0f;
   rasterizationState.lineWidth = 1.0f;
 
   VkPipelineColorBlendStateCreateInfo colorBlendState = {};

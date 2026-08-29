@@ -43,4 +43,5 @@ struct ShadowMatrix {
   tg::mat4 view;
   tg::mat4 mvp;
   tg::mat4 pers;
+  tg::vec4 options;
 };
