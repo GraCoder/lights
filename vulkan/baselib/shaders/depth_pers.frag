@@ -12,7 +12,6 @@ shadow_matrix;
 
 layout(set = 1, binding = 0) uniform sampler2D tex;
 
-layout(location = 0) out vec4 frag_color;
 layout(location = 2) in vec2 vp_uv;
 
 void main(void)
@@ -21,5 +20,4 @@ void main(void)
   if(clr.a == 0.0f)
     discard;
 
-  frag_color = vec4(0, 0, 0, 1);
 }

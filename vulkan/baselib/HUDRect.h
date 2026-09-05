@@ -12,7 +12,8 @@ public:
 
   void setGeometry(float x, float y, float w, float h);
 
-  void setTexture(HUDPipeline *pipeline, VulkanTexture *tex, VkDescriptorPool pool);
+  void setTexture(HUDPipeline *pipeline, VulkanTexture *tex, VkDescriptorPool pool,
+                  VkImageLayout imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   void fillCommand(VkCommandBuffer cmdbuf, HUDPipeline *pipeline);
 

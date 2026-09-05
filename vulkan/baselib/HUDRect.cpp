@@ -41,7 +41,8 @@ void HUDRect::setGeometry(float x, float y, float w, float h)
   _buffer = dst;
 }
 
-void HUDRect::setTexture(HUDPipeline *pipeline, VulkanTexture *tex, VkDescriptorPool pool)
+void HUDRect::setTexture(HUDPipeline *pipeline, VulkanTexture *tex, VkDescriptorPool pool,
+                         VkImageLayout imageLayout)
 {
   if (_set && _pool) {
     vkFreeDescriptorSets(*_device, _pool, 1, &_set);
@@ -59,6 +60,7 @@ void HUDRect::setTexture(HUDPipeline *pipeline, VulkanTexture *tex, VkDescriptor
   VK_CHECK_RESULT(vkAllocateDescriptorSets(*_device, &allocInfo, &_set));
 
   auto descriptor = tex->descriptor();
+  descriptor.imageLayout = imageLayout;
 
   VkWriteDescriptorSet writeDescriptorSet = {};
   writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

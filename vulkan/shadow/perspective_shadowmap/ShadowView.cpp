@@ -147,6 +147,8 @@ ShadowView::~ShadowView()
     _indexMem = VK_NULL_HANDLE;
   }
 
+  _hudRect.reset();
+
   if (_descriptPool) {
     vkDestroyDescriptorPool(*device(), _descriptPool, nullptr);
     _descriptPool = VK_NULL_HANDLE;
@@ -643,14 +645,19 @@ void ShadowView::buildCommandBuffer(VkCommandBuffer cmdBuf)
 
 void ShadowView::createPipeLayout()
 {
-  VkDescriptorPoolSize typeCounts[1];
+  VkDescriptorPoolSize typeCounts[3] = {};
   typeCounts[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   typeCounts[0].descriptorCount = 10;
+  typeCounts[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+  typeCounts[1].descriptorCount = 10;
+  typeCounts[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  typeCounts[2].descriptorCount = 10;
 
   VkDescriptorPoolCreateInfo descriptorPoolInfo = {};
   descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   descriptorPoolInfo.pNext = nullptr;
-  descriptorPoolInfo.poolSizeCount = 1;
+  descriptorPoolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  descriptorPoolInfo.poolSizeCount = 3;
   descriptorPoolInfo.pPoolSizes = typeCounts;
   descriptorPoolInfo.maxSets = 10;
 
@@ -859,6 +866,7 @@ void ShadowView::createPipeline()
     _shadowTexture = std::make_shared<VulkanTexture>();
     _shadowTexture->realize(_depthImage);
     VkDescriptorImageInfo depthDescriptor = _shadowTexture->descriptor();
+    depthDescriptor.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     VkWriteDescriptorSet writeDescriptorSet = {};
     writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -873,7 +881,8 @@ void ShadowView::createPipeline()
 
   {
     _hudPipeline->realize(_hudPass.get());
-    _hudRect->setTexture(_hudPipeline.get(), _shadowTexture.get(), _descriptPool);
+    _hudRect->setTexture(_hudPipeline.get(), _shadowTexture.get(), _descriptPool,
+                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
   }
 
 }

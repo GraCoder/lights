@@ -46,13 +46,10 @@ void DepthPersPipeline::realize(VulkanPass *renderPass, int subpass)
   rasterizationState.depthBiasEnable = VK_FALSE;
   rasterizationState.lineWidth = 1.0f;
 
-  VkPipelineColorBlendAttachmentState blendAttachmentState[1] = {};
-  blendAttachmentState[0].colorWriteMask = 0xf;
-  blendAttachmentState[0].blendEnable = VK_FALSE;
   VkPipelineColorBlendStateCreateInfo colorBlendState = {};
   colorBlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-  colorBlendState.attachmentCount = 1;
-  colorBlendState.pAttachments = blendAttachmentState;
+  colorBlendState.attachmentCount = 0;
+  colorBlendState.pAttachments = nullptr;
 
   VkViewport vp;
   vp.x = 0; vp.y = _h;
