@@ -40,7 +40,7 @@ protected:
     attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     attachments[1].format = VK_FORMAT_D32_SFLOAT;
     attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -310,7 +310,7 @@ void VSMShadow::realize(VulkanPass *renderPass, VkDescriptorPool descriptorPool)
   createSampler();
 
   VkDescriptorImageInfo imageInfo = {};
-  imageInfo.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = _momentsImage->imageView();
   imageInfo.sampler = _sampler;
 

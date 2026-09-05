@@ -3,8 +3,8 @@
 #include <stdint.h>
 #include <vulkan/vulkan.h>
 
-#include <SDL2/SDL_vulkan.h>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL_vulkan.h>
+#include <SDL3/SDL.h>
 
 #include "tvec.h"
 #include "tmath.h"
@@ -73,23 +73,22 @@ void VulkanView::frame(bool continus)
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
-        case SDL_QUIT:
+        case SDL_EVENT_QUIT:
           running = false;
           break;
-        case SDL_WINDOWEVENT:
-          if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-            vkDeviceWaitIdle(*_device);
-            int w = event.window.data1;
-            int h = event.window.data2;
-            resizeImpl(w, h);
-            updateFrame();
-          }
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
+          vkDeviceWaitIdle(*_device);
+          int w = event.window.data1;
+          int h = event.window.data2;
+          resizeImpl(w, h);
+          updateFrame();
           break;
-        case SDL_USEREVENT:
+        }
+        case SDL_EVENT_USER:
           if (event.user.code == WM_PAINT)
             render();
           break;
-        case SDL_MOUSEBUTTONDOWN:
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
           if (_imgui && _imgui->mouseDown(event.button)) {
           } else {
             if (event.button.button == 1)
@@ -97,7 +96,7 @@ void VulkanView::frame(bool continus)
           }
           updateFrame();
           break;
-        case SDL_MOUSEBUTTONUP:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
           if (_imgui && _imgui->mouseUp(event.button)) {
           } else {
             if (event.button.button == 1)
@@ -105,7 +104,7 @@ void VulkanView::frame(bool continus)
           }
           updateFrame();
           break;
-        case SDL_MOUSEMOTION:
+        case SDL_EVENT_MOUSE_MOTION:
           if (_imgui && _imgui->mouseMove(event.motion)) {
           } else {
             if (event.motion.state & SDL_BUTTON_LMASK) {
@@ -119,16 +118,17 @@ void VulkanView::frame(bool continus)
           }
           updateFrame();
           break;
-        case SDL_MOUSEWHEEL: {
+        case SDL_EVENT_MOUSE_WHEEL: {
           _manip->zoom(event.wheel.y);
           wheel(event.wheel.y);
           updateFrame();
           break;
         }
-        case SDL_KEYUP: {
-          if (event.key.keysym.scancode == SDL_SCANCODE_SPACE)
+        case SDL_EVENT_TEXT_INPUT:
+        case SDL_EVENT_KEY_UP: {
+          if (event.key.scancode == SDL_SCANCODE_SPACE)
             _manip->home();
-          keyUp(event.key.keysym.scancode);
+          keyUp(event.key.scancode);
           updateFrame();
         } break;
         default:
@@ -163,7 +163,7 @@ void VulkanView::updateFrame()
   updateScene();
 
   SDL_Event ev;
-  ev.type = SDL_USEREVENT;
+  ev.type = SDL_EVENT_USER;
   ev.user.code = WM_PAINT;
   SDL_PushEvent(&ev);
 

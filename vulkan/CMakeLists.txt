@@ -1,15 +1,15 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.28)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Vulkan)
-#find_package(SDL2)
+find_package(SDL3 CONFIG REQUIRED)
 
 get_filename_component(VK_BIN_DIR ${Vulkan_GLSLC_EXECUTABLE} DIRECTORY)
-get_filename_component(SDL2_LIB_DIR ${Vulkan_LIBRARY} DIRECTORY)
-link_directories(${SDL2_LIB_DIR})
+
+set(COMMON_LIB SDL3::SDL3)
 
 #find_program(glslc_executable NAMES glslc HINTS Vulkan::glslc)
 function(compile_shader target)
@@ -41,7 +41,5 @@ add_definitions(-D DEPTH_ZERO)
 
 add_subdirectory(baselib)
 add_subdirectory(basic_pbr)
-add_subdirectory(tbdr)
-add_subdirectory(cbfr)
 
 add_subdirectory(shadow)

@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.24)
-
 set(target_name baselib)
 
 set(imgui/hdr
@@ -108,8 +106,7 @@ target_sources(${target_name} PRIVATE ${shaders})
 target_include_directories(${target_name} PUBLIC ${Vulkan_INCLUDE_DIR})
 
 target_link_libraries(${target_name} PUBLIC ${Vulkan_LIBRARY})
-#target_link_libraries(${target_name} PUBLIC SDL2::SDL2 SDL2::SDL2main)
-target_link_libraries(${target_name} PUBLIC SDL2 SDL2main)
+target_link_libraries(${target_name} PUBLIC ${COMMON_LIB})
 
 set_target_properties(${target_name} PROPERTIES FOLDER "vulkan")
 

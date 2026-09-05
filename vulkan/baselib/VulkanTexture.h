@@ -41,7 +41,7 @@ private:
 
   std::vector<uint8_t> _data;
 
-  VkImageLayout _imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+  VkImageLayout _imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
   VkImage _image = VK_NULL_HANDLE;
   VkImageView _imageView = VK_NULL_HANDLE;

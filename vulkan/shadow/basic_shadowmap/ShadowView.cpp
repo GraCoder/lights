@@ -22,8 +22,8 @@
 #include "GLTFLoader.h"
 #include "MeshInstance.h"
 
-#include "SDL2/SDL.h"
-#include "SDL2/SDL_vulkan.h"
+#include "SDL3/SDL.h"
+#include "SDL3/SDL_vulkan.h"
 
 #include "config.h"
 #include "imgui/imgui.h"
@@ -34,8 +34,6 @@ constexpr float fov = 60;
 
 PBRBase pbr;
 ParallelLight light;
-
-VulkanInstance &inst = VulkanInstance::instance();
 
 ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev) : VulkanView(dev, false)
 {
@@ -451,14 +449,18 @@ void ShadowView::buildCommandBuffer(VkCommandBuffer cmdBuf)
 
 void ShadowView::createPipeLayout()
 {
-  VkDescriptorPoolSize typeCounts[1];
+  VkDescriptorPoolSize typeCounts[3] = {};
   typeCounts[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   typeCounts[0].descriptorCount = 10;
+  typeCounts[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+  typeCounts[1].descriptorCount = 10;
+  typeCounts[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  typeCounts[2].descriptorCount = 10;
 
   VkDescriptorPoolCreateInfo descriptorPoolInfo = {};
   descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   descriptorPoolInfo.pNext = nullptr;
-  descriptorPoolInfo.poolSizeCount = 1;
+  descriptorPoolInfo.poolSizeCount = 3;
   descriptorPoolInfo.pPoolSizes = typeCounts;
   descriptorPoolInfo.maxSets = 10;
 
@@ -650,6 +652,7 @@ void ShadowView::createPipeline()
     _shadowTexture->realize(_depthImage);
 
     VkDescriptorImageInfo depthDescriptor = _shadowTexture->descriptor();
+    depthDescriptor.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
     writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writeDescriptorSet.dstBinding = 1;

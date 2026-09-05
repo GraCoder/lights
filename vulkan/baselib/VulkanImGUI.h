@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
-#include <SDL2/SDL_events.h>
+#include <SDL3/SDL_events.h>
 
 #include <memory>
 #include <vector>

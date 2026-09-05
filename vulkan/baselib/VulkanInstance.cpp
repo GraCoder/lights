@@ -1,14 +1,13 @@
 #include "VulkanInstance.h"
 
-#include <Windows.h>
-
 #include <vector>
 #include <string>
 #include <iostream>
 #include <cstring>
 
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_win32.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include "VulkanDebug.h"
 #include "VulkanDevice.h"
@@ -88,8 +87,12 @@ void VulkanInstance::initialize()
   appInfo.pEngineName = "demo";
   appInfo.apiVersion = VK_API_VERSION_1_3;
 
-  std::vector<const char*> instanceExtensions = {VK_KHR_SURFACE_EXTENSION_NAME};
-  instanceExtensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+  uint32_t sdlExtensionCount = 0;
+  const char *const *sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&sdlExtensionCount);
+  if (!sdlExtensions) {
+    throw std::runtime_error(std::string("Could not get SDL Vulkan instance extensions: ") + SDL_GetError());
+  }
+  std::vector<const char*> instanceExtensions(sdlExtensions, sdlExtensions + sdlExtensionCount);
 
   uint32_t extCount = 0;
   std::vector<std::string> supportedExt;
@@ -106,7 +109,9 @@ void VulkanInstance::initialize()
   instanceCreateInfo.pNext = NULL;
   instanceCreateInfo.pApplicationInfo = &appInfo;
 
-  instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  if (std::find(supportedExt.begin(), supportedExt.end(), VK_EXT_DEBUG_UTILS_EXTENSION_NAME) != supportedExt.end()) {
+    instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
   //instanceExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
   if (instanceExtensions.size() > 0) {

@@ -23,8 +23,8 @@
 #include "GLTFLoader.h"
 #include "MeshInstance.h"
 
-#include "SDL2/SDL.h"
-#include "SDL2/SDL_vulkan.h"
+#include "SDL3/SDL.h"
+#include "SDL3/SDL_vulkan.h"
 
 #include "config.h"
 #include "imgui/imgui.h"
@@ -35,8 +35,6 @@ constexpr float fov = 60;
 
 PBRBase pbr;
 ParallelLight light;
-
-VulkanInstance &inst = VulkanInstance::instance();
 
 inline tg::mat4 lookatLh(const tg::vec3& eye, const tg::vec3& center, const tg::vec3& up)
 {

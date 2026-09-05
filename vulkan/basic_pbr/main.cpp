@@ -4,8 +4,8 @@
 #include "config.h"
 #include "Manipulator.h"
 
-#include "SDL2/SDL.h"
-#include "SDL2/SDL_vulkan.h"
+#include "SDL3/SDL.h"
+#include "SDL3/SDL_vulkan.h"
 
 #include "VulkanDebug.h"
 #include "VulkanView.h"
@@ -24,8 +24,6 @@
 
 constexpr float fov = 60;
 
-
-VulkanInstance &inst = VulkanInstance::instance();
 
 struct {
   tg::mat4 prj;
@@ -119,10 +117,10 @@ public:
 
   void setWindow(SDL_Window *win)
   {
-    SDL_GetWindowSize(win, &_w, &_h);
+    SDL_GetWindowSizeInPixels(win, &_w, &_h);
 
     VkSurfaceKHR surface;
-    if (!SDL_Vulkan_CreateSurface(win, inst, &surface))
+    if (!SDL_Vulkan_CreateSurface(win, VulkanInstance::instance(), nullptr, &surface))
       throw std::runtime_error("could not create vk surface.");
 
     _swapchain->setSurface(surface);
@@ -182,7 +180,7 @@ public:
   void update()
   {
     SDL_Event ev;
-    ev.type = SDL_USEREVENT;
+    ev.type = SDL_EVENT_USER;
     ev.user.code = WM_PAINT;
     SDL_PushEvent(&ev);
   }
@@ -230,26 +228,24 @@ public:
       SDL_Event event;
       while (SDL_PollEvent(&event)) {
         switch (event.type) {
-          case SDL_QUIT:
+          case SDL_EVENT_QUIT:
             running = false;
             break;
-          case SDL_WINDOWEVENT:
-            if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-              vkDeviceWaitIdle(*_device);
-              _w = event.window.data1;
-              _h = event.window.data2;
-              freeResource();
-              _swapchain->realize(_w, _h, true);
-              reqResource();
-              updateUbo();
-              update();
-            }
+          case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            vkDeviceWaitIdle(*_device);
+            _w = event.window.data1;
+            _h = event.window.data2;
+            freeResource();
+            _swapchain->realize(_w, _h, true);
+            reqResource();
+            updateUbo();
+            update();
             break;
-          case SDL_USEREVENT:
+          case SDL_EVENT_USER:
             if (event.user.code == WM_PAINT)
               draw();
             break;
-          case SDL_MOUSEMOTION:
+          case SDL_EVENT_MOUSE_MOTION:
             if (event.motion.state & SDL_BUTTON_LMASK) {
               _manip.rotate(event.motion.xrel, event.motion.yrel);
               updateUbo();
@@ -260,14 +256,14 @@ public:
             }
             update();
             break;
-          case SDL_MOUSEWHEEL: {
+          case SDL_EVENT_MOUSE_WHEEL: {
             _manip.zoom(event.wheel.y);
             updateUbo();
             update();
             break;
           }
-          case SDL_KEYUP: {
-            if (event.key.keysym.scancode == SDL_SCANCODE_SPACE)
+          case SDL_EVENT_KEY_UP: {
+            if (event.key.scancode == SDL_SCANCODE_SPACE)
               _manip.home();
             updateUbo();
             update();
@@ -802,12 +798,13 @@ int main(int argc, char** argv)
   SDL_Window* win = 0;
   std::shared_ptr<Test> test;
   try {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
-      throw std::runtime_error("sdl init error.");
-    win = SDL_CreateWindow("demo", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    if (!SDL_Init(SDL_INIT_VIDEO))
+      throw std::runtime_error(std::string("sdl init error: ") + SDL_GetError());
+    win = SDL_CreateWindow("demo", 800, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     if (win == nullptr)
-      throw std::runtime_error("could not create sdl window.");
+      throw std::runtime_error(std::string("could not create sdl window: ") + SDL_GetError());
 
+    auto &inst = VulkanInstance::instance();
     inst.enableDebug();
     auto dev = inst.createDevice();
 
@@ -819,5 +816,8 @@ int main(int argc, char** argv)
     return -1;
   }
   test->loop();
+  test.reset();
+  SDL_DestroyWindow(win);
+  SDL_Quit();
   return 0;
 }
