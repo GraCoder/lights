@@ -3,7 +3,7 @@
 #include "DepthPass.h"
 #include "DepthPipeline.h"
 #include "MeshInstance.h"
-#include "ShadowPipeline.h"
+#include "LightingPipeline.h"
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
 #include "VulkanImage.h"
@@ -18,7 +18,7 @@
 PCFShadow::PCFShadow(const std::shared_ptr<VulkanDevice> &device)
   : _device(device)
 {
-  _lightingPipeline = std::make_shared<ShadowPipeline>(device);
+  _lightingPipeline = std::make_shared<LightingPipeline>(device);
   _casterPipeline = std::make_shared<DepthPipeline>(device, MapSize, MapSize, 0.5f, 2.0f);
   _image = device->createDepthImage(MapSize, MapSize, VK_FORMAT_D32_SFLOAT);
   _pass = std::make_shared<DepthPass>(device);
@@ -53,6 +53,11 @@ VkPipelineLayout PCFShadow::lightingPipelineLayout() const
 VulkanTexture *PCFShadow::debugTexture() const
 {
   return _texture.get();
+}
+
+VkImageLayout PCFShadow::debugTextureLayout() const
+{
+  return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 }
 
 void PCFShadow::initializeUniforms()

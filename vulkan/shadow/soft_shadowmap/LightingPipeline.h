@@ -4,11 +4,11 @@
 
 #include <string>
 
-class ShadowPipeline : public TexturePipeline
+class LightingPipeline : public TexturePipeline
 {
 public:
-  ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev, std::string fragmentShader = "pcf_shadow.frag.spv");
-  ~ShadowPipeline();
+  LightingPipeline(const std::shared_ptr<VulkanDevice> &dev, std::string fragmentShader = "pcf_shadow.frag.spv");
+  ~LightingPipeline();
 
   void realize(VulkanPass *renderPass, int subpass = 0);
 

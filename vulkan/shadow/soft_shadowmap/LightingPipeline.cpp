@@ -1,4 +1,4 @@
-#include "ShadowPipeline.h"
+#include "LightingPipeline.h"
 #include "VulkanPass.h"
 #include "VulkanTools.h"
 #include "RenderData.h"
@@ -12,12 +12,12 @@ using tg::vec2;
 
 #define SHADER_DIR ROOT_DIR##"/vulkan/shadow/soft_shadowmap"
 
-ShadowPipeline::ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev, std::string fragmentShader)
+LightingPipeline::LightingPipeline(const std::shared_ptr<VulkanDevice> &dev, std::string fragmentShader)
   : TexturePipeline(dev), _fragmentShader(std::move(fragmentShader))
 {
 }
 
-ShadowPipeline::~ShadowPipeline()
+LightingPipeline::~LightingPipeline()
 {
   if (_lightLayout)
     vkDestroyDescriptorSetLayout(*_device, _lightLayout, 0);
@@ -25,7 +25,7 @@ ShadowPipeline::~ShadowPipeline()
     vkDestroyDescriptorSetLayout(*_device, _shadowLayout, 0);
 }
 
-void ShadowPipeline::realize(VulkanPass *renderPass, int subpass)
+void LightingPipeline::realize(VulkanPass *renderPass, int subpass)
 {
   auto pipeLay = pipeLayout();
 
@@ -150,7 +150,7 @@ void ShadowPipeline::realize(VulkanPass *renderPass, int subpass)
   vkDestroyShaderModule(*_device, shaderStages[1].module, nullptr);
 }
 
-VkPipelineLayout ShadowPipeline::pipeLayout()
+VkPipelineLayout LightingPipeline::pipeLayout()
 {
   if (!_pipeLayout) {
     VkDescriptorSetLayout layouts[] = {matrixLayout(), lightLayout(), textureLayout(), shadowLayout()};
@@ -176,7 +176,7 @@ VkPipelineLayout ShadowPipeline::pipeLayout()
   return _pipeLayout;
 }
 
-VkDescriptorSetLayout ShadowPipeline::lightLayout()
+VkDescriptorSetLayout LightingPipeline::lightLayout()
 {
   if (!_lightLayout) {
     VkDescriptorSetLayoutBinding binding = {};
@@ -194,7 +194,7 @@ VkDescriptorSetLayout ShadowPipeline::lightLayout()
   return _lightLayout;
 }
 
-VkDescriptorSetLayout ShadowPipeline::shadowLayout()
+VkDescriptorSetLayout LightingPipeline::shadowLayout()
 {
   if (!_shadowLayout) {
     VkDescriptorSetLayoutBinding layoutBinding[2] = {};

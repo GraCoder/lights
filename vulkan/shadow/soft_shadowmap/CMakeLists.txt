@@ -5,7 +5,7 @@ set(hdr
 	ShadowTechnique.h
 	VSMShadow.h
 	ShadowView.h
-	ShadowPipeline.h
+	LightingPipeline.h
 )
 
 set(src
@@ -13,7 +13,7 @@ set(src
 	PCFShadow.cpp
 	VSMShadow.cpp
 	ShadowView.cpp
-	ShadowPipeline.cpp
+	LightingPipeline.cpp
 )
 
 add_executable(${target_name} ${src} ${hdr})

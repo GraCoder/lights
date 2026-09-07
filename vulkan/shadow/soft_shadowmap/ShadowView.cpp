@@ -38,7 +38,7 @@ ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev)
   _model = loader.loadFile(ROOT_DIR "/data/plane_sphere.glb");
   //_tree->set_transform(tg::translate(tg::vec3(0, 1, 0)) * tg::scale(4.0f));
 
-  setShadowType(ShadowType::VSM);
+  setShadowType(ShadowType::PCF);
 
   {
     _basicTexture = std::make_shared<VulkanTexture>();
@@ -124,7 +124,8 @@ void ShadowView::setShadowType(ShadowType type)
   if (rebuild) {
     _shadow->realize(renderPass(), _descriptPool);
     _shadow->createFrameBuffers(_swapchain->imageCount());
-    _hudRect->setTexture(_hudPipeline.get(), _shadow->debugTexture(), _descriptPool);
+    _hudRect->setTexture(_hudPipeline.get(), _shadow->debugTexture(), _descriptPool,
+                         _shadow->debugTextureLayout());
   }
 }
 
@@ -451,6 +452,7 @@ void ShadowView::createPipeline()
 
   {
     _hudPipeline->realize(_hudPass.get());
-    _hudRect->setTexture(_hudPipeline.get(), _shadow->debugTexture(), _descriptPool);
+    _hudRect->setTexture(_hudPipeline.get(), _shadow->debugTexture(), _descriptPool,
+                         _shadow->debugTextureLayout());
   }
 }

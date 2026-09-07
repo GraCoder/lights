@@ -1,7 +1,7 @@
 #include "VSMShadow.h"
 
 #include "MeshInstance.h"
-#include "ShadowPipeline.h"
+#include "LightingPipeline.h"
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
 #include "VulkanImage.h"
@@ -239,8 +239,8 @@ VSMShadow::VSMShadow(const std::shared_ptr<VulkanDevice> &device)
   if (_momentsFormat == VK_FORMAT_UNDEFINED)
     throw std::runtime_error("No filterable VSM moments format is supported");
 
-  _lightingPipeline = std::make_shared<ShadowPipeline>(device, "vsm_shadow.frag.spv");
-  _casterPipeline = std::make_shared<VSMMomentsPipeline>(device, MapSize);
+  _shadowPipeline = std::make_shared<LightingPipeline>(device, "vsm_shadow.frag.spv");
+  _depthPipeline = std::make_shared<VSMMomentsPipeline>(device, MapSize);
   _pass = std::make_shared<VSMPass>(device, _momentsFormat);
   _momentsImage = device->createColorImage(MapSize, MapSize, _momentsFormat);
   _depthImage = device->createDepthImage(MapSize, MapSize, VK_FORMAT_D32_SFLOAT);
@@ -259,19 +259,24 @@ VSMShadow::~VSMShadow()
 
 VkDescriptorSetLayout VSMShadow::matrixLayout() const
 {
-  return _lightingPipeline->matrixLayout();
+  return _shadowPipeline->matrixLayout();
 }
 VkDescriptorSetLayout VSMShadow::lightLayout() const
 {
-  return _lightingPipeline->lightLayout();
+  return _shadowPipeline->lightLayout();
 }
 VkPipelineLayout VSMShadow::lightingPipelineLayout() const
 {
-  return _lightingPipeline->pipeLayout();
+  return _shadowPipeline->pipeLayout();
 }
 VulkanTexture *VSMShadow::debugTexture() const
 {
   return _texture.get();
+}
+
+VkImageLayout VSMShadow::debugTextureLayout() const
+{
+  return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
 void VSMShadow::initializeUniforms()
@@ -297,12 +302,12 @@ void VSMShadow::initializeUniforms()
 void VSMShadow::realize(VulkanPass *renderPass, VkDescriptorPool descriptorPool)
 {
   _descriptorPool = descriptorPool;
-  _casterPipeline->realize(_pass.get());
-  _lightingPipeline->realize(renderPass);
+  _depthPipeline->realize(_pass.get());
+  _shadowPipeline->realize(renderPass);
 
-  _depthMatrixSet = allocateSet(descriptorPool, _casterPipeline->matrixLayout());
+  _depthMatrixSet = allocateSet(descriptorPool, _depthPipeline->matrixLayout());
   writeUniformDescriptor(_depthMatrixSet, 0, *_depthMatrixBuffer, sizeof(MVP));
-  _shadowSet = allocateSet(descriptorPool, _lightingPipeline->shadowLayout());
+  _shadowSet = allocateSet(descriptorPool, _shadowPipeline->shadowLayout());
   writeUniformDescriptor(_shadowSet, 0, *_shadowBuffer, sizeof(ShadowMatrix));
 
   _texture = std::make_shared<VulkanTexture>();
@@ -368,19 +373,19 @@ void VSMShadow::recordShadowPass(VkCommandBuffer cmdBuf, uint32_t frameIndex, Me
 
   tg::mat4 transform;
   transform.identity();
-  vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_casterPipeline);
-  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _casterPipeline->pipeLayout(), 0, 1, &_depthMatrixSet, 0, nullptr);
-  vkCmdPushConstants(cmdBuf, _casterPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Transform), &transform);
-  model.buildCommandBuffer(cmdBuf, _casterPipeline->pipeLayout());
+  vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_depthPipeline);
+  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _depthPipeline->pipeLayout(), 0, 1, &_depthMatrixSet, 0, nullptr);
+  vkCmdPushConstants(cmdBuf, _depthPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Transform), &transform);
+  model.buildCommandBuffer(cmdBuf, _depthPipeline->pipeLayout());
   vkCmdEndRenderPass(cmdBuf);
 }
 
 void VSMShadow::bindLighting(VkCommandBuffer cmdBuf, VkDescriptorSet matrixSet, VkDescriptorSet lightSet)
 {
-  vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_lightingPipeline);
+  vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_shadowPipeline);
   VkDescriptorSet commonSets[2] = {matrixSet, lightSet};
-  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightingPipeline->pipeLayout(), 0, 2, commonSets, 0, nullptr);
-  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _lightingPipeline->pipeLayout(), 3, 1, &_shadowSet, 0, nullptr);
+  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 0, 2, commonSets, 0, nullptr);
+  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 3, 1, &_shadowSet, 0, nullptr);
 }
 
 void VSMShadow::toggleFilterMode()
@@ -392,7 +397,7 @@ void VSMShadow::toggleFilterMode()
 
 bool VSMShadow::valid() const
 {
-  return _casterPipeline->valid() && _lightingPipeline->valid();
+  return _depthPipeline->valid() && _shadowPipeline->valid();
 }
 
 template <typename T>

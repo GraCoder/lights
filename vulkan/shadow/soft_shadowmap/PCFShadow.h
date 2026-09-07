@@ -8,7 +8,7 @@
 
 class DepthPass;
 class DepthPipeline;
-class ShadowPipeline;
+class LightingPipeline;
 class VulkanBuffer;
 class VulkanDevice;
 class VulkanImage;
@@ -27,6 +27,7 @@ public:
   VkDescriptorSetLayout lightLayout() const override;
   VkPipelineLayout lightingPipelineLayout() const override;
   VulkanTexture *debugTexture() const override;
+  VkImageLayout debugTextureLayout() const override;
 
   void initializeUniforms() override;
   void realize(VulkanPass *renderPass, VkDescriptorPool descriptorPool) override;
@@ -46,7 +47,7 @@ private:
   void createCompareSampler();
 
   std::shared_ptr<VulkanDevice> _device;
-  std::shared_ptr<ShadowPipeline> _lightingPipeline;
+  std::shared_ptr<LightingPipeline> _lightingPipeline;
   std::shared_ptr<DepthPipeline> _casterPipeline;
   std::shared_ptr<DepthPass> _pass;
   std::shared_ptr<VulkanImage> _image;

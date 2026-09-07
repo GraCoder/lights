@@ -15,6 +15,7 @@ public:
   virtual VkDescriptorSetLayout lightLayout() const = 0;
   virtual VkPipelineLayout lightingPipelineLayout() const = 0;
   virtual VulkanTexture *debugTexture() const = 0;
+  virtual VkImageLayout debugTextureLayout() const = 0;
 
   virtual void initializeUniforms() = 0;
   virtual void realize(VulkanPass *renderPass, VkDescriptorPool descriptorPool) = 0;
