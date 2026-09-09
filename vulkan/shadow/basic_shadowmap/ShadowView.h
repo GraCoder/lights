@@ -53,8 +53,6 @@ private:
   std::shared_ptr<VulkanImage> _depthImage;
 
   VkDescriptorSet _matrixSet = VK_NULL_HANDLE;
-  VkDescriptorSet _lightSet = VK_NULL_HANDLE;
-  VkDescriptorSet _pbrSet = VK_NULL_HANDLE;
   VkDescriptorSet _basicTexSet = VK_NULL_HANDLE;
 
   VkDescriptorSet _depthMatrixSet = VK_NULL_HANDLE;
@@ -64,7 +62,7 @@ private:
   std::shared_ptr<VulkanBuffer> _shadowBuf;
   std::shared_ptr<VulkanTexture> _shadowTexture;
 
-  std::shared_ptr<VulkanBuffer> _uboBuf, _light, _material;
+  std::shared_ptr<VulkanBuffer> _uboBuf;
 
   MVP _matrix, _depthMatrix;
 

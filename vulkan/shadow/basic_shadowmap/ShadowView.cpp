@@ -32,9 +32,6 @@
 
 constexpr float fov = 60;
 
-PBRBase pbr;
-ParallelLight light;
-
 ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev) : VulkanView(dev, false)
 {
   createSphere();
@@ -220,25 +217,13 @@ void ShadowView::createSphere()
 
 void ShadowView::setUniforms()
 {
-  light.lightDir = tg::normalize(vec3(1, 1, 1));
-  light.lightColor = vec3(10);
-
-  uint8_t *data = 0;
-  VK_CHECK_RESULT(vkMapMemory(*device(), _light->memory(), 0, sizeof(light), 0, (void **)&data));
-  memcpy(data, &light, sizeof(light));
-
-  pbr.albedo = vec3(0.8);
-  pbr.ao = 1;
-  pbr.metallic = 0.2;
-  pbr.roughness = 0.7;
-  VK_CHECK_RESULT(vkMapMemory(*device(), _material->memory(), 0, sizeof(pbr), 0, (void **)&data));
-  memcpy(data, &pbr, sizeof(pbr));
-
-  auto vp = tg::vec3(100);
+  // 与 soft_shadowmap 的 PCF 示例使用相同的光源位置和有效投影空间。
+  auto vp = tg::vec3(10, 10, 0);
   _depthMatrixBuf = device()->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(MVP));
   _depthMatrix.view = tg::lookat(vp, tg::vec3(0, 0, 0), tg::vec3(0, 1, 0));
-  _depthMatrix.prj = tg::ortho<float>(-25, 25, -25, 25, 10, 400);
+  _depthMatrix.prj = tg::ortho<float>(-5, 5, -5, 5, 0.1, 20);
 
+  uint8_t *data = 0;
   VK_CHECK_RESULT(vkMapMemory(*device(), _depthMatrixBuf->memory(), 0, sizeof(MVP), 0, (void **)&data));
   memcpy(data, &_depthMatrix, sizeof(MVP));
 
@@ -413,9 +398,7 @@ void ShadowView::buildCommandBuffer(VkCommandBuffer cmdBuf)
   if (_shadowPipeline && _shadowPipeline->valid()) {
     vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, *_shadowPipeline);
 
-    uint32_t offset[1] = {};
-    VkDescriptorSet dessets[3] = {_matrixSet, _lightSet, _pbrSet};
-    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 0, 3, dessets, 1, offset);
+    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 0, 1, &_matrixSet, 0, nullptr);
 
     VkWriteDescriptorSet textureSet = {};
     textureSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -425,9 +408,9 @@ void ShadowView::buildCommandBuffer(VkCommandBuffer cmdBuf)
     textureSet.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     auto descriptor = _basicTexture->descriptor();
     textureSet.pImageInfo = &descriptor;
-    _device->vkCmdPushDescriptorSetKHR(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 3, 1, &textureSet);
+    _device->vkCmdPushDescriptorSetKHR(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 1, 1, &textureSet);
 
-    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 4, 1, &_shadowSet, 0, 0);
+    vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, _shadowPipeline->pipeLayout(), 2, 1, &_shadowSet, 0, nullptr);
 
     vkCmdPushConstants(cmdBuf, _shadowPipeline->pipeLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Transform), &mt);
 
@@ -444,7 +427,7 @@ void ShadowView::buildCommandBuffer(VkCommandBuffer cmdBuf)
     }
   }
 
-  _model->buildTextureCommandBuffer(cmdBuf, _shadowPipeline->pipeLayout());
+  _model->buildTextureCommandBuffer(cmdBuf, _shadowPipeline->pipeLayout(), 1);
 }
 
 void ShadowView::createPipeLayout()
@@ -470,8 +453,6 @@ void ShadowView::createPipeLayout()
 
   //----------------------------------------------------------------------------------------------------
   auto mlayout = _shadowPipeline->matrixLayout();
-  auto llayout = _shadowPipeline->lightLayout();
-  auto playout = _shadowPipeline->pbrLayout();
 
   VkDescriptorSetAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -481,32 +462,12 @@ void ShadowView::createPipeLayout()
 
   VK_CHECK_RESULT(vkAllocateDescriptorSets(*device(), &allocInfo, &_matrixSet));
 
-  allocInfo.pSetLayouts = &llayout;
-  VK_CHECK_RESULT(vkAllocateDescriptorSets(*device(), &allocInfo, &_lightSet));
-
-  allocInfo.pSetLayouts = &playout;
-  VK_CHECK_RESULT(vkAllocateDescriptorSets(*device(), &allocInfo, &_pbrSet));
-
   VkDescriptorBufferInfo descriptor = {};
   int sz = sizeof(_matrix);
   _uboBuf = device()->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sz);
   descriptor.buffer = *_uboBuf;
   descriptor.offset = 0;
   descriptor.range = sizeof(_matrix);
-
-  sz = sizeof(light);
-  VkDescriptorBufferInfo ldescriptor = {};
-  _light = device()->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sz);
-  ldescriptor.buffer = *_light;
-  ldescriptor.offset = 0;
-  ldescriptor.range = sz;
-
-  sz = sizeof(pbr);
-  VkDescriptorBufferInfo mdescriptor = {};
-  _material = device()->createBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sz);
-  mdescriptor.buffer = *_material;
-  mdescriptor.offset = 0;
-  mdescriptor.range = sz;
 
   VkWriteDescriptorSet writeDescriptorSet = {};
   writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -516,19 +477,6 @@ void ShadowView::createPipeLayout()
   writeDescriptorSet.pBufferInfo = &descriptor;
   writeDescriptorSet.dstBinding = 0;
   vkUpdateDescriptorSets(*device(), 1, &writeDescriptorSet, 0, nullptr);
-
-  writeDescriptorSet.dstSet = _lightSet;
-  writeDescriptorSet.pBufferInfo = &ldescriptor;
-  writeDescriptorSet.dstBinding = 0;
-  vkUpdateDescriptorSets(*device(), 1, &writeDescriptorSet, 0, nullptr);
-
-  writeDescriptorSet.dstSet = _pbrSet;
-  writeDescriptorSet.pBufferInfo = &mdescriptor;
-  writeDescriptorSet.dstBinding = 0;
-  //writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-  vkUpdateDescriptorSets(*device(), 1, &writeDescriptorSet, 0, nullptr);
-
 
   //----------------------------------------------------------------------------------------------------
   //{
@@ -621,7 +569,7 @@ void ShadowView::createPipeline()
 
   _shadowPipeline->realize(renderPass());
 
-  _model->realize(_device, _shadowPipeline);
+  _model->realize(_device);
 
   {
     auto slayout = _shadowPipeline->shadowLayout();

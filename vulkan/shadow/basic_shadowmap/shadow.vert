@@ -16,7 +16,7 @@ layout(location = 1) out vec3 vp_norm;
 layout(location = 2) out vec2 vp_uv;
 layout(location = 3) out vec3 vp_suv; 
 
-layout(set = 4, binding = 0) uniform ShadowMatrix{
+layout(set = 2, binding = 0) uniform ShadowMatrix{
   vec4 light;
   mat4 proj;
   mat4 view;

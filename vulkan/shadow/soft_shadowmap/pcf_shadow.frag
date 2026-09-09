@@ -134,14 +134,71 @@ void main(void)
   // 默认位于阴影贴图覆盖范围之外的片元完全受光照。
   float visibility = 1.0;
 
-  // 沿光线方向和表面法线偏移接收点，减轻 shadow acne。
-  // 掠射角越大，法线方向偏移越大。
+  // ---------------------------------------------------------------------------
+  // 阴影接收点偏移（receiver bias）
+  //
+  // Shadow Map 的深度精度有限。当前片元重新投影到光源空间后，其深度可能
+  // 因为量化和浮点误差而略大于阴影贴图中同一表面的深度，进而错误地把
+  // 表面判定为被自身遮挡，形成 shadow acne（表面黑色条纹或斑点）。
+  // 这里先将接收点稍微推出表面，再使用偏移后的位置进行阴影深度比较。
+  // ---------------------------------------------------------------------------
+
+  // shadow_matrix.light.xyz 表示从场景指向阴影光源的方向。重新归一化后，
+  // 后续“方向 * 距离”的结果不会受到原向量长度影响。
   vec3 shadow_light = normalize(shadow_matrix.light.xyz);
+
+  // n 和 shadow_light 都是单位向量，因此它们的点积等于夹角 theta 的余弦：
+  //
+  //   shadow_nol = dot(n, shadow_light) = cos(theta)
+  //
+  // 正对光源时结果接近 1；表面与光线接近平行（掠射角）时结果接近 0。
+  // clamp 一方面忽略背光面的负值，另一方面避免浮点误差产生略大于 1 的值。
   float shadow_nol = clamp(dot(n, shadow_light), 0.0, 1.0);
+
+  // 根据表面朝向计算沿法线方向的动态偏移。利用恒等式：
+  //
+  //   sqrt(1 - cos(theta)^2) = sin(theta)
+  //
+  // 所以该表达式等价于：
+  //
+  //   normal_offset = normal_bias_scale * texel_world_size * sin(theta)
+  //
+  // options.y：法线偏移缩放系数，当前由 CPU 设置为 1.0。
+  // options.z：一个阴影 texel 对应的世界空间尺寸 MapWorldSize / MapSize；
+  //            当前为 10 / 2048，约等于 0.0048828125。
+  //
+  // 表面正对光源时 sin(theta) 为 0，法线偏移最小；表面越倾斜，偏移越大；
+  // 到达掠射角时偏移最大，约为一个阴影 texel 的世界空间宽度。斜面上的
+  // 深度变化更快、更容易发生自遮挡误判，因此需要更强的偏移。
+  // max(..., 0.0) 用于避免浮点误差产生小于 0 的被开方数和 NaN。
   float normal_offset = shadow_matrix.options.y * shadow_matrix.options.z *
       sqrt(max(1.0 - shadow_nol * shadow_nol, 0.0));
+
+  // 将原始世界空间片元位置组合两种偏移：
+  //
+  // 1. shadow_light * options.x：沿指向光源的方向移动固定距离。
+  //    options.x 当前为 0.001，提供稳定的基础深度偏移。
+  // 2. n * normal_offset：沿表面法线推出，并随入射角自动增大。
+  //
+  // 偏移过小仍会出现 shadow acne；偏移过大则可能让阴影与物体分离，产生
+  // Peter Panning。因此这里使用较小的固定偏移配合角度相关的法线偏移。
   vec3 receiver_pos = vp_pos + shadow_light * shadow_matrix.options.x + n * normal_offset;
+
+  // receiver_pos 是世界空间位置。以 w = 1 构造齐次位置，使矩阵中的平移
+  // 对它生效，然后通过光源 View-Projection 矩阵转换到光源裁剪空间：
+  //
+  //   biased_suv = light_projection * light_view * receiver_world_position
+  //
+  // 此时 biased_suv 是 (x_clip, y_clip, z_clip, w_clip)，还不是纹理坐标。
   vec4 biased_suv = shadow_matrix.mvp * vec4(receiver_pos, 1.0);
+
+  // 执行透视除法，将光源裁剪坐标转换为光源 NDC 坐标：
+  //
+  //   xyz_ndc = xyz_clip / w_clip
+  //
+  // x/y 随后会由 [-1, 1] 映射到阴影纹理的 [0, 1]；z 则作为当前接收点
+  // 深度，与 Shadow Map 中保存的最近遮挡深度进行比较。当前光源虽然使用
+  // 正交投影，保留透视除法仍是正确且通用的写法，也兼容未来的透视投影。
   biased_suv /= biased_suv.w;
 
   // 仅对位于光源裁剪空间/阴影贴图覆盖范围内的片元采样阴影。

@@ -12,7 +12,7 @@ using tg::vec2;
 
 #define SHADER_DIR ROOT_DIR##"/vulkan/shadow/basic_shadowmap"
 
-ShadowPipeline::ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev) : TexPBRPipeline(dev)
+ShadowPipeline::ShadowPipeline(const std::shared_ptr<VulkanDevice> &dev) : TexturePipeline(dev)
 {
 }
 
@@ -150,7 +150,7 @@ void ShadowPipeline::realize(VulkanPass *renderPass, int subpass)
 VkPipelineLayout ShadowPipeline::pipeLayout()
 {
   if (!_pipeLayout) {
-    VkDescriptorSetLayout layouts[5] = {matrixLayout(), lightLayout(), pbrLayout(), textureLayout(), shadowLayout()};
+    VkDescriptorSetLayout layouts[3] = {matrixLayout(), textureLayout(), shadowLayout()};
 
     VkPushConstantRange transformConstants;
     transformConstants.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -160,7 +160,7 @@ VkPipelineLayout ShadowPipeline::pipeLayout()
     VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo = {};
     pPipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pPipelineLayoutCreateInfo.pNext = nullptr;
-    pPipelineLayoutCreateInfo.setLayoutCount = 5;
+    pPipelineLayoutCreateInfo.setLayoutCount = 3;
     pPipelineLayoutCreateInfo.pSetLayouts = layouts;
     pPipelineLayoutCreateInfo.pushConstantRangeCount = 1;
     pPipelineLayoutCreateInfo.pPushConstantRanges = &transformConstants;

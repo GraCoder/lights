@@ -3,139 +3,61 @@
 layout(location = 0) in vec3 vp_pos;
 layout(location = 1) in vec3 vp_norm;
 layout(location = 2) in vec2 vp_uv;
-layout(location = 3) in vec3 vp_suv; 
+layout(location = 3) in vec3 vp_suv;
 
 layout(location = 0) out vec4 frag_color;
 
-layout(binding = 0) uniform MatrixObject
+// Basic shadow map 只显示纹理本色和硬阴影，不包含 PBR 或 Phong 光照。
+layout(set = 1, binding = 0) uniform sampler2D tex;
+
+layout(set = 2, binding = 0) uniform ShadowMatrix
 {
-  vec4 eye;
-  mat4 proj;
-  mat4 view;
-} mvp;
-
-layout(set = 1, binding = 0) uniform ParallelLight
-{
-  vec4 light_dir;
-  vec4 light_color;
-} light;
-
-layout(set = 2, binding = 0) uniform Material
-{
-  float ao;
-  float metallic;
-  float roughness;
-  vec4 albedo;
-} material;
-
-layout(set = 3, binding = 0) uniform sampler2D tex;
-
-layout(set = 4, binding = 0) uniform ShadowMatrix{
   vec4 light;
   mat4 proj;
   mat4 view;
   mat4 mvp;
 } shadow_matrix;
 
-layout(set = 4, binding = 1) uniform sampler2D shadow_tex;
+// 使用普通 sampler2D 读取深度。VulkanTexture 的采样器使用 linear filter，
+// 因此这里会先对相邻 texel 的深度值进行线性插值，再做一次硬阈值比较。
+layout(set = 2, binding = 1) uniform sampler2D shadow_tex;
 
-const float pi = 3.14159265359;
-
-vec3 fresnel_schlick(float cosTheta, vec3 f0)
-{
-  return f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
-}
-
-float distribution_GGX(vec3 n, vec3 h, float roughness)
-{
-  float a = roughness * roughness;
-  float a2 = a * a;
-  float ndot_h = max(dot(n, h), 0.0);
-  float ndot_h2 = ndot_h * ndot_h;
-
-  float denom = ndot_h2 * (a2 - 1.0) + 1.0;
-  denom = pi * denom * denom;
-
-  return a2 / max(denom, 0.0000001);
-}
-
-float schlick_GGX(float ndotv, float roughness)
-{
-  float r = (roughness + 1.0);
-  float k = (r * r) / 8.0;
-
-  float denom = ndotv * (1.0 - k) + k;
-
-  return ndotv / denom;
-}
-
-float smith_Geometry(vec3 n, vec3 v, vec3 l, float roughness)
-{
-  float ndotv = max(dot(n, v), 0.0);
-  float ndotl = max(dot(n, l), 0.0);
-  float ggx2 = schlick_GGX(ndotv, roughness);
-  float ggx1 = schlick_GGX(ndotl, roughness);
-
-  return ggx1 * ggx2;
-}
+const float shadow_bias = 0.001;
+const float shadow_darkness = 0.2;
 
 void main(void)
 {
-  frag_color = texture(tex, vp_uv);
-  if (frag_color.a == 0.f)
+  vec4 base_color = texture(tex, vp_uv);
+  if (base_color.a == 0.0)
     discard;
 
-  vec3 mate_albedo = frag_color.rgb;
-  float mate_roughness = material.roughness;
-  float mate_metallic = material.metallic;
-  float mate_ao = material.ao;
+  // 默认认为阴影贴图覆盖范围外的片元可见。
+  float visibility = 1.0;
 
-  vec3 eye = mvp.eye.xyz;
-  vec3 n = normalize(vp_norm);
-  vec3 v = normalize(eye - vp_pos);
+  // 只保留固定 receiver bias：将世界空间接收点沿指向光源的方向移动
+  // 0.001 个世界单位。这里不再使用基于法线角度的 slope/normal bias。
+  vec3 shadow_light = normalize(shadow_matrix.light.xyz);
+  vec3 receiver_pos = vp_pos + shadow_light * shadow_bias;
 
-  vec3 f0 = vec3(0.04);
-  f0 = mix(f0, mate_albedo, mate_metallic);
-  vec3 lo = vec3(0.0);
+  // 将偏移后的世界空间位置重新投影到光源 NDC 空间。
+  vec4 biased_suv = shadow_matrix.mvp * vec4(receiver_pos, 1.0);
+  biased_suv /= biased_suv.w;
 
-  vec3 l = light.light_dir.xyz;
-  vec3 h = normalize(v + l);
-  vec3 radiance = light.light_color.rgb;
-
-  float nv = distribution_GGX(n, h, mate_roughness);
-  float gv = smith_Geometry(n, v, l, mate_roughness);
-  vec3 fv = fresnel_schlick(clamp(dot(h, v), 0.0, 1.0), f0);
-
-  vec3 nominator = nv * gv * fv;
-  float denominator = 4 * max(dot(n, v), 0) * max(dot(n, l), 0.0);
-  vec3 specular = nominator / max(denominator, 0.000001);
-
-  vec3 ks = fv;
-  vec3 kd = vec3(1.0) - ks;
-  kd *= (1.0 - mate_metallic);
-
-  float ndotl = max(dot(n, l), 0);
-
-  lo += (kd * mate_albedo / pi + specular) * radiance * ndotl;
-
-  vec3 ambient = vec3(0.03) * mate_albedo * mate_ao;
-  vec3 color = ambient + lo;
-
-  color = color / (color + vec3(1.0));
-  //color = pow(color, vec3(1.0 / 2.2));
-
-  if(vp_suv.x > -1 && vp_suv.x < 1 && vp_suv.y > -1 && vp_suv.y < 1)
+  // Soft shadow map 示例使用 Vulkan 深度范围 [0, 1]，因此 XYZ 都必须位于
+  // 有效光源裁剪范围内；范围外保持 visibility = 1.0。
+  if (biased_suv.x > -1.0 && biased_suv.x < 1.0 &&
+      biased_suv.y > -1.0 && biased_suv.y < 1.0 &&
+      biased_suv.z >= 0.0 && biased_suv.z <= 1.0)
   {
-    vec2 suv = vp_suv.xy;
-    suv = (suv + vec2(1)) / 2.0;
-    suv.y = 1 - suv.y;
-    float dep = texture(shadow_tex, suv).r;
-    float depbias = tan(acos(dot(n, shadow_matrix.light.xyz))) * 0.0001;
-    if(vp_suv.z > dep + depbias)
-    {
-      color = color * dep;
-    }
+    vec2 suv = (biased_suv.xy + vec2(1.0)) * 0.5;
+    suv.y = 1.0 - suv.y;
+
+    float closest_depth = texture(shadow_tex, suv).r;
+    visibility = biased_suv.z <= closest_depth ? 1.0 : 0.0;
   }
 
-  frag_color = vec4(color, 1.0);
+  // 不计算任何光照项。可见区域显示纹理本色，阴影区域保留固定的 20% 亮度，
+  // 便于观察模型轮廓；该常量只是阴影显示强度，不是 PBR/Phong 环境光。
+  float shadow_factor = mix(shadow_darkness, 1.0, visibility);
+  frag_color = vec4(base_color.rgb * shadow_factor, base_color.a);
 }
