@@ -19,6 +19,8 @@ public:
   void zoom(float in);
 
   tg::vec3d eye() const;
+  tg::vec3d target() const { return _target; }
+  tg::vec3d up() const;
 
   tg::mat4 viewMatrix() const;
 

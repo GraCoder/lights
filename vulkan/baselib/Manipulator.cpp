@@ -74,8 +74,12 @@ tg::vec3d Manipulator::eye() const
   return _target + _rotation * tg::vec3d(0, 0, _distance);
 }
 
+tg::vec3d Manipulator::up() const
+{
+  return tg::normalize(_rotation * tg::vec3d(0, 1, 0));
+}
+
 tg::mat4 Manipulator::viewMatrix() const
 {
-  auto up = tg::normalize(_rotation * tg::vec3d(0, 1, 0));
-  return tg::lookat(eye(), _target, up);
+  return tg::lookat(eye(), _target, up());
 }

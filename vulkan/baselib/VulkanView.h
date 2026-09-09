@@ -96,7 +96,8 @@ protected:
   std::vector<VkCommandBuffer> _cmdBufs;
 
 protected:
-  int _w, _h;
+  int _w = 0;
+  int _h = 0;
   uint32_t _frameNum = 0;
   std::shared_ptr<Manipulator> _manip;
 

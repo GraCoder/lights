@@ -29,6 +29,12 @@
 #include "config.h"
 #include "imgui/imgui.h"
 
+#include <array>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <vector>
+
 #define WM_PAINT 1
 
 constexpr float fov = 60;
@@ -36,54 +42,316 @@ constexpr float fov = 60;
 PBRBase pbr;
 ParallelLight light;
 
-inline tg::mat4 lookatLh(const tg::vec3& eye, const tg::vec3& center, const tg::vec3& up)
+namespace
 {
-  vec3 f = -normalize(eye - center);
-  const vec3 s = normalize(cross(up, f));
-  const vec3 u = normalize(cross(f, s));
-  const tg::mat4 M =
-      tg::mat4(
-        tg::vec4(s[0], u[0], -f[0], 0),
-        tg::vec4(s[1], u[1], -f[1], 0),
-        tg::vec4(s[2], u[2], -f[2], 0),
-        tg::vec4(0, 0, 0, 1)
-      );
+constexpr float ShadowNear = 0.1f;
+const tg::boundingbox SceneShadowBounds(tg::vec3(-12, -1, -12), tg::vec3(12, 20, 12));
 
-  return M * tg::translate<float>(-eye);
+struct PsmWarp
+{
+  tg::mat4 matrix;
+  std::vector<tg::vec3> warpedPoints;
+  tg::vec3 warpedLightDirection;
+};
+
+struct Plane
+{
+  tg::vec3 normal;
+  float distance;
+};
+
+constexpr uint32_t BoxEdges[12][2] = {
+  {0, 1}, {2, 3}, {4, 5}, {6, 7},
+  {0, 2}, {1, 3}, {4, 6}, {5, 7},
+  {0, 4}, {1, 5}, {2, 6}, {3, 7}
+};
+
+void addUniquePoint(std::vector<tg::vec3> &points, const tg::vec3 &point)
+{
+  for (const auto &existing : points) {
+    if (tg::length(existing - point) < 0.0001f)
+      return;
+  }
+  points.push_back(point);
 }
 
-auto calPsmMatrix(const tg::vec3 &lightDir, const tg::vec3 &camEye, const tg::vec3 &camCenter, float zn, float zf, const tg::boundingbox &psc)
+bool pointInsideBox(const tg::vec3 &point, const tg::boundingbox &box)
 {
-  struct Ret {
-    tg::mat4 mm;
-    tg::mat4 mp;
+  constexpr float epsilon = 0.0001f;
+  return point.x() >= box.min().x() - epsilon && point.x() <= box.max().x() + epsilon &&
+         point.y() >= box.min().y() - epsilon && point.y() <= box.max().y() + epsilon &&
+         point.z() >= box.min().z() - epsilon && point.z() <= box.max().z() + epsilon;
+}
+
+Plane makePlane(const tg::vec3 &a, const tg::vec3 &b, const tg::vec3 &c,
+                const tg::vec3 &insidePoint)
+{
+  Plane plane;
+  plane.normal = tg::normalize(tg::cross(b - a, c - a));
+  plane.distance = -tg::dot(plane.normal, a);
+  if (tg::dot(plane.normal, insidePoint) + plane.distance < 0.0f) {
+    plane.normal = -plane.normal;
+    plane.distance = -plane.distance;
+  }
+  return plane;
+}
+
+std::array<Plane, 6> frustumPlanes(const std::array<tg::vec3, 8> &corners)
+{
+  tg::vec3 center(0.0f);
+  for (const auto &corner : corners)
+    center += corner;
+  center /= float(corners.size());
+
+  // corner 顺序：每个 near/far 平面内依次为左下、右下、左上、右上。
+  return {
+    makePlane(corners[0], corners[2], corners[3], center), // near
+    makePlane(corners[4], corners[5], corners[7], center), // far
+    makePlane(corners[0], corners[4], corners[6], center), // left
+    makePlane(corners[1], corners[3], corners[7], center), // right
+    makePlane(corners[0], corners[1], corners[5], center), // bottom
+    makePlane(corners[2], corners[6], corners[7], center)  // top
   };
+}
 
-  tg::vec3 lt = tg::normalize(lightDir);
-  auto rt = tg::cross(lt, camEye - camCenter);
-  rt = tg::normalize(rt);
-  auto ft = tg::cross(lt, rt);
+bool pointInsideFrustum(const tg::vec3 &point, const std::array<Plane, 6> &planes)
+{
+  constexpr float epsilon = 0.0001f;
+  for (const auto &plane : planes) {
+    if (tg::dot(plane.normal, point) + plane.distance < -epsilon)
+      return false;
+  }
+  return true;
+}
 
-  tg::boundingbox bd = psc;
-  float n = sqrt(zf * zn) - zn;
-  float dis = 0, f = 0, fov = 0;
+bool segmentBoxIntersection(const tg::vec3 &start, const tg::vec3 &end,
+                            const tg::boundingbox &box, float &entry, float &exit)
+{
+  const tg::vec3 direction = end - start;
+  entry = 0.0f;
+  exit = 1.0f;
 
-  Ret ret;
-  {
-    bd.expand(camEye);
-    float rad = bd.radius();
-    tg::vec3 center = bd.center();
-    dis = n + rad;
-    tg::vec3 eye = center - ft * dis;
-    ret.mm = tg::lookat(eye, center, lt);
-    f = n + bd.radius() * 2.0;
-    fov = tg::degrees(asin(sin(bd.radius() / dis)) * 2);
+  for (int axis = 0; axis < 3; ++axis) {
+    if (std::abs(direction[axis]) < 0.000001f) {
+      if (start[axis] < box.min()[axis] || start[axis] > box.max()[axis])
+        return false;
+      continue;
+    }
+
+    float t0 = (box.min()[axis] - start[axis]) / direction[axis];
+    float t1 = (box.max()[axis] - start[axis]) / direction[axis];
+    if (t0 > t1)
+      std::swap(t0, t1);
+    entry = std::max(entry, t0);
+    exit = std::min(exit, t1);
+    if (entry > exit)
+      return false;
+  }
+  return true;
+}
+
+std::vector<tg::vec3> frustumSceneIntersection(const std::array<tg::vec3, 8> &frustum,
+                                                const tg::boundingbox &sceneBounds)
+{
+  const auto planes = frustumPlanes(frustum);
+  std::array<tg::vec3, 8> sceneCorners;
+  for (uint32_t i = 0; i < sceneCorners.size(); ++i)
+    sceneCorners[i] = sceneBounds.corner(i);
+
+  std::vector<tg::vec3> points;
+
+  // 保留两个凸体中已经位于另一个凸体内部的原始顶点。
+  for (const auto &corner : frustum) {
+    if (pointInsideBox(corner, sceneBounds))
+      addUniquePoint(points, corner);
+  }
+  for (const auto &corner : sceneCorners) {
+    if (pointInsideFrustum(corner, planes))
+      addUniquePoint(points, corner);
   }
 
-  ret.mp = tg::perspective<float>(fov, 1.0, n, f);
+  // 收集视锥边与场景 AABB 表面的交点。
+  for (const auto &edge : BoxEdges) {
+    const tg::vec3 start = frustum[edge[0]];
+    const tg::vec3 end = frustum[edge[1]];
+    float entry = 0.0f;
+    float exit = 0.0f;
+    if (segmentBoxIntersection(start, end, sceneBounds, entry, exit)) {
+      addUniquePoint(points, start + (end - start) * entry);
+      addUniquePoint(points, start + (end - start) * exit);
+    }
+  }
 
-  return ret;
+  // 收集场景 AABB 边与六个视锥平面的交点。
+  for (const auto &edge : BoxEdges) {
+    const tg::vec3 start = sceneCorners[edge[0]];
+    const tg::vec3 end = sceneCorners[edge[1]];
+    const tg::vec3 direction = end - start;
+    for (const auto &plane : planes) {
+      const float startDistance = tg::dot(plane.normal, start) + plane.distance;
+      const float endDistance = tg::dot(plane.normal, end) + plane.distance;
+      const float denominator = startDistance - endDistance;
+      if (std::abs(denominator) < 0.000001f)
+        continue;
+
+      const float t = startDistance / denominator;
+      if (t < 0.0f || t > 1.0f)
+        continue;
+
+      const tg::vec3 point = start + direction * t;
+      if (pointInsideFrustum(point, planes) && pointInsideBox(point, sceneBounds))
+        addUniquePoint(points, point);
+    }
+  }
+
+  return points;
 }
+
+std::vector<tg::vec3> includePotentialCasters(const std::vector<tg::vec3> &receivers,
+                                               const tg::vec3 &lightDirection,
+                                               const tg::boundingbox &sceneBounds)
+{
+  const tg::vec3 towardLight = tg::normalize(lightDirection);
+  std::vector<tg::vec3> points = receivers;
+  points.reserve(receivers.size() * 2);
+
+  // 对每个可见接收点，沿指向光源的方向延伸到场景盒边界。该线段覆盖可能
+  // 位于接收点与方向光之间的 caster，同时不会把无关的整个场景盒纳入拟合。
+  for (const auto &receiver : receivers) {
+    float exitDistance = std::numeric_limits<float>::max();
+    for (int axis = 0; axis < 3; ++axis) {
+      if (towardLight[axis] > 0.000001f)
+        exitDistance = std::min(exitDistance,
+            (sceneBounds.max()[axis] - receiver[axis]) / towardLight[axis]);
+      else if (towardLight[axis] < -0.000001f)
+        exitDistance = std::min(exitDistance,
+            (sceneBounds.min()[axis] - receiver[axis]) / towardLight[axis]);
+    }
+
+    if (exitDistance > 0.0f && std::isfinite(exitDistance))
+      addUniquePoint(points, receiver + towardLight * exitDistance);
+  }
+  return points;
+}
+
+std::array<tg::vec3, 8> cameraFrustumCorners(const tg::vec3 &eye,
+                                             const tg::vec3 &target,
+                                             const tg::vec3 &up,
+                                             float verticalFov,
+                                             float aspect,
+                                             float nearDistance,
+                                             float farDistance)
+{
+  const tg::vec3 forward = tg::normalize(target - eye);
+  const tg::vec3 right = tg::normalize(tg::cross(forward, up));
+  const tg::vec3 cameraUp = tg::normalize(tg::cross(right, forward));
+  const float tanHalfFov = std::tan(tg::radians(verticalFov * 0.5f));
+
+  std::array<tg::vec3, 8> corners;
+  int index = 0;
+  for (float distance : {nearDistance, farDistance}) {
+    const tg::vec3 center = eye + forward * distance;
+    const float halfHeight = tanHalfFov * distance;
+    const float halfWidth = halfHeight * aspect;
+
+    for (float y : {-1.0f, 1.0f}) {
+      for (float x : {-1.0f, 1.0f}) {
+        corners[index++] = center + right * (x * halfWidth) + cameraUp * (y * halfHeight);
+      }
+    }
+  }
+  return corners;
+}
+
+PsmWarp buildPsmWarp(const tg::vec3 &lightDirection,
+                     const tg::vec3 &cameraEye,
+                     const tg::vec3 &cameraTarget,
+                     float shadowFar,
+                     const std::vector<tg::vec3> &fitPoints)
+{
+  const tg::vec3 light = tg::normalize(lightDirection);
+  const tg::vec3 cameraForward = tg::normalize(cameraTarget - cameraEye);
+
+  // PSM 在光线与视线接近平行时会退化。此时选择一个稳定的备用轴，避免
+  // cross 得到零向量；这会平滑降低扭曲效果，但不会产生 NaN 矩阵。
+  tg::vec3 right = tg::cross(light, cameraForward);
+  if (tg::length(right) < 0.001f) {
+    const tg::vec3 fallback = std::abs(light.y()) < 0.99f
+        ? tg::vec3(0, 1, 0)
+        : tg::vec3(1, 0, 0);
+    right = tg::cross(light, fallback);
+  }
+  right = tg::normalize(right);
+  const tg::vec3 forward = tg::normalize(tg::cross(light, right));
+
+  tg::boundingbox bounds(fitPoints[0], fitPoints[0]);
+  for (size_t i = 1; i < fitPoints.size(); ++i)
+    bounds.expand(fitPoints[i]);
+
+  const tg::vec3 center = bounds.center();
+  const float radius = std::max(bounds.radius(), 0.001f);
+  const float warpNear = std::max(std::sqrt(shadowFar * ShadowNear) - ShadowNear, 0.01f);
+  const float distance = radius + warpNear;
+  const float warpFar = warpNear + radius * 2.0f;
+  const float ratio = std::clamp(radius / distance, 0.0f, 0.999f);
+  const float warpFov = tg::degrees(2.0f * std::asin(ratio));
+
+  const tg::mat4 warpView = tg::lookat(center - forward * distance, center, light);
+  const tg::mat4 warpProjection = tg::perspective<float>(warpFov, 1.0f, warpNear, warpFar);
+
+  PsmWarp result;
+  result.matrix = warpProjection * warpView;
+  result.warpedPoints.reserve(fitPoints.size());
+  for (const auto &point : fitPoints)
+    result.warpedPoints.push_back(result.matrix * point);
+
+  // 方向向量不能直接经历透视除法。用两个相邻世界点的扭曲结果之差，得到
+  // 光照方向在 post-perspective space 中的实际方向。
+  const tg::vec3 warpedCenter = result.matrix * center;
+  const tg::vec3 warpedAlongLight = result.matrix * (center + light);
+  const tg::vec3 warpedLight = warpedAlongLight - warpedCenter;
+  result.warpedLightDirection = tg::length(warpedLight) > 0.000001f
+      ? tg::normalize(warpedLight)
+      : light;
+  return result;
+}
+
+void buildWarpedLightMatrices(const PsmWarp &warp, ShadowMatrix &shadowMatrix)
+{
+  tg::boundingbox warpedBounds(warp.warpedPoints[0], warp.warpedPoints[0]);
+  for (size_t i = 1; i < warp.warpedPoints.size(); ++i)
+    warpedBounds.expand(warp.warpedPoints[i]);
+
+  const tg::vec3 center = warpedBounds.center();
+  const tg::vec3 extent = warpedBounds.max() - warpedBounds.min();
+  const float lightDistance = std::max(tg::length(extent), 0.001f);
+  const tg::vec3 lightEye = center + warp.warpedLightDirection * lightDistance;
+  const tg::vec3 viewForward = tg::normalize(center - lightEye);
+  const tg::vec3 fallbackUp = std::abs(viewForward.y()) < 0.99f
+      ? tg::vec3(0, 1, 0)
+      : tg::vec3(0, 0, 1);
+
+  // 使用固定且稳定的 up，不根据每帧投影轮廓旋转阴影相机，避免最小矩形
+  // 候选边切换导致 Shadow Map texel 网格旋转和明显抖动。
+  shadowMatrix.view = tg::lookat(lightEye, center, fallbackUp);
+
+  const tg::vec3 firstLightCorner = shadowMatrix.view * warp.warpedPoints[0];
+  tg::boundingbox lightBounds(firstLightCorner, firstLightCorner);
+  for (size_t i = 1; i < warp.warpedPoints.size(); ++i)
+    lightBounds.expand(shadowMatrix.view * warp.warpedPoints[i]);
+
+  constexpr float padding = 0.01f;
+  const float nearPlane = std::max(0.001f, -lightBounds.max().z() - padding);
+  const float farPlane = std::max(nearPlane + 0.001f, -lightBounds.min().z() + padding);
+  shadowMatrix.prj = tg::ortho(lightBounds.min().x() - padding,
+                               lightBounds.max().x() + padding,
+                               lightBounds.min().y() - padding,
+                               lightBounds.max().y() + padding,
+                               nearPlane,
+                               farPlane);
+  shadowMatrix.mvp = shadowMatrix.prj * shadowMatrix.view;
+}
+} // namespace
 
 ShadowView::ShadowView(const std::shared_ptr<VulkanDevice> &dev) : VulkanView(dev, true)
 {
@@ -148,6 +416,11 @@ ShadowView::~ShadowView()
   }
 
   _hudRect.reset();
+
+  if (_shadowSampler) {
+    vkDestroySampler(*device(), _shadowSampler, nullptr);
+    _shadowSampler = VK_NULL_HANDLE;
+  }
 
   if (_descriptPool) {
     vkDestroyDescriptorPool(*device(), _descriptPool, nullptr);
@@ -322,47 +595,39 @@ void ShadowView::updateUbo()
     vkUnmapMemory(*device(), _uboBuf->memory());
   }
 
-  tg::boundingbox psc(tg::vec3(-10, 0, -10), tg::vec3(10, 4, 10));
-  auto vp = manipulator()->eye();
-  auto ct = tg::vec3(0, 0, 0);
-  auto [mm, mp] = calPsmMatrix(light.lightDir, vp, ct, 0.1, 20, psc);
+  const tg::vec3 cameraEye = manipulator()->eye();
+  const tg::vec3 cameraTarget = manipulator()->target();
+  const tg::vec3 cameraUp = manipulator()->up();
+  const float aspect = float(width()) / std::max(float(height()), 1.0f);
+  const float shadowFar = std::max(ShadowNear + 1.0f,
+      tg::distance(cameraEye, SceneShadowBounds.center()) + SceneShadowBounds.radius());
+  const auto frustumCorners = cameraFrustumCorners(cameraEye, cameraTarget, cameraUp,
+                                                   fov, aspect, ShadowNear, shadowFar);
 
-  tg::mat4 mat = mp * mm;
-
-  {
-    tg::boundingbox perbox, viewbox;
-    for (int i = 0; i < 8; i++)
-    {
-      auto v = mat * psc.corner(i);
-      perbox.expand(v);
-    }
-    auto nup = tg::vec3(0, 0, 1);
-    auto neye = perbox.center();
-    auto npos = neye;
-    neye.y() = perbox.max().y() + 0.1;
-
-    auto viewMatrix = lookatLh(neye, npos, nup);
-    _shadowMatrix.view = viewMatrix;
-
-    for (int i = 0; i < 8; i++)
-    {
-      auto v = viewMatrix * perbox.corner(i);
-      viewbox.expand(v);
-    }
-
-    _shadowMatrix.prj = tg::ortho(viewbox.min().x(), viewbox.max().x(), viewbox.min().y(), viewbox.max().y(), -viewbox.max().z(), - viewbox.min().z());
-    _shadowMatrix.mvp = _shadowMatrix.prj * _shadowMatrix.view;
-
-    auto pp1 = mat * vec3(-10, 0, -10);
-    auto pp2 = _shadowMatrix.view * pp1;
-    auto pp3 = _shadowMatrix.prj * pp2;
-
-    auto pp4 = mat * vec3(10, 0, -10);
-    auto pp5 = _shadowMatrix.mvp * pp4;
-    printf("");
+  // PSM warp 只拟合“当前相机视锥与场景阴影范围的交集”，避免将完整远端
+  // 视锥和整个场景盒做 union 后留下大量空白区域、浪费 Shadow Map texel。
+  std::vector<tg::vec3> receivers = frustumSceneIntersection(frustumCorners,
+                                                             SceneShadowBounds);
+  if (receivers.empty()) {
+    // 相机暂时完全看不到场景盒时仍保持一个有限、有效的矩阵。
+    for (uint32_t i = 0; i < 8; ++i)
+      receivers.push_back(SceneShadowBounds.corner(i));
   }
 
-  _shadowMatrix.pers = mat;
+  PsmWarp warp = buildPsmWarp(light.lightDir, cameraEye, cameraTarget,
+                              shadowFar, receivers);
+
+  // 最终光照正交投影还需覆盖能遮挡这些 receiver 的物体。沿光源方向延伸
+  // receiver 到场景盒边界，只把潜在 caster 体积加入 light-space fitting。
+  const std::vector<tg::vec3> shadowPoints = includePotentialCasters(
+      receivers, light.lightDir, SceneShadowBounds);
+  warp.warpedPoints.clear();
+  warp.warpedPoints.reserve(shadowPoints.size());
+  for (const auto &point : shadowPoints)
+    warp.warpedPoints.push_back(warp.matrix * point);
+
+  _shadowMatrix.pers = warp.matrix;
+  buildWarpedLightMatrices(warp, _shadowMatrix);
 
   {
     VK_CHECK_RESULT(vkMapMemory(*device(), _shadowBuf->memory(), 0, sizeof(ShadowMatrix), 0, (void **)&data));
@@ -865,8 +1130,25 @@ void ShadowView::createPipeline()
 
     _shadowTexture = std::make_shared<VulkanTexture>();
     _shadowTexture->realize(_depthImage);
+
+    if (_shadowSampler)
+      vkDestroySampler(*device(), _shadowSampler, nullptr);
+
+    VkSamplerCreateInfo samplerInfo = vks::initializers::samplerCreateInfo();
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 0.0f;
+    VK_CHECK_RESULT(vkCreateSampler(*device(), &samplerInfo, nullptr, &_shadowSampler));
+
     VkDescriptorImageInfo depthDescriptor = _shadowTexture->descriptor();
     depthDescriptor.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    depthDescriptor.sampler = _shadowSampler;
 
     VkWriteDescriptorSet writeDescriptorSet = {};
     writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

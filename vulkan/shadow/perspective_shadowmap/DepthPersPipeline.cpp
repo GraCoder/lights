@@ -43,7 +43,12 @@ void DepthPersPipeline::realize(VulkanPass *renderPass, int subpass)
   rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
   rasterizationState.depthClampEnable = VK_FALSE;
   rasterizationState.rasterizerDiscardEnable = VK_FALSE;
-  rasterizationState.depthBiasEnable = VK_FALSE;
+  // PSM 的非线性扭曲会放大部分区域的深度斜率。生成阴影深度时同时使用
+  // constant bias 与 slope-scaled bias，以减少表面自遮挡形成的 shadow acne。
+  rasterizationState.depthBiasEnable = VK_TRUE;
+  rasterizationState.depthBiasConstantFactor = 0.5f;
+  rasterizationState.depthBiasSlopeFactor = 2.0f;
+  rasterizationState.depthBiasClamp = 0.0f;
   rasterizationState.lineWidth = 1.0f;
 
   VkPipelineColorBlendStateCreateInfo colorBlendState = {};

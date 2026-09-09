@@ -66,6 +66,7 @@ private:
   VkDescriptorSet _shadowTextureSet = VK_NULL_HANDLE;
   std::shared_ptr<VulkanBuffer> _shadowBuf;
   std::shared_ptr<VulkanTexture> _shadowTexture;
+  VkSampler _shadowSampler = VK_NULL_HANDLE;
 
   std::shared_ptr<VulkanBuffer> _uboBuf, _light, _material;
 

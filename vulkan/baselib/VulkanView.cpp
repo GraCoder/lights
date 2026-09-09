@@ -380,7 +380,7 @@ void VulkanView::destroySyncObjs()
 
 void VulkanView::resizeImpl(int w, int h)
 {
-  if (w != _w && h != _h) {
+  if (w != _w || h != _h) {
     _w = w; _h = h;
 
     destroyFrameBuffers();

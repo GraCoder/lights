@@ -118,28 +118,50 @@ void main(void)
 
   lo += (kd * mate_albedo / pi + specular) * radiance * ndotl;
 
+  // 默认阴影投影范围外的片元完全可见。
+  float visibility = 1.0;
+
+  // 只保留固定 receiver bias。shadow_matrix.light.xyz 的语义是从场景指向
+  // 光源，因此沿该方向稍微移动接收点，可以减轻表面自遮挡。
+  const float shadow_bias = 0.001;
+  vec3 receiver_pos = vp_pos + normalize(shadow_matrix.light.xyz) * shadow_bias;
+
+  // 深度生成阶段采用：world -> PSM warp -> 除以 warp.w -> light VP。
+  // 采样阶段必须使用完全相同的变换顺序。
+  vec4 warped = shadow_matrix.pers * vec4(receiver_pos, 1.0);
+  if (warped.w > 0.000001)
+  {
+    warped.xyz /= warped.w;
+    warped.w = 1.0;
+
+    vec4 light_clip = shadow_matrix.mvp * warped;
+    if (light_clip.w > 0.000001)
+    {
+      vec3 shadow_ndc = light_clip.xyz / light_clip.w;
+
+      // 只对实际落在阴影贴图覆盖范围内的接收点采样。这样即使 sampler
+      // 使用 REPEAT，越界坐标也不会从阴影贴图另一侧产生虚假阴影。
+      if (shadow_ndc.x > -1.0 && shadow_ndc.x < 1.0 &&
+          shadow_ndc.y > -1.0 && shadow_ndc.y < 1.0 &&
+          shadow_ndc.z >= 0.0 && shadow_ndc.z <= 1.0)
+      {
+        vec2 suv = (shadow_ndc.xy + vec2(1.0)) * 0.5;
+        suv.y = 1.0 - suv.y;
+
+        // 普通 sampler2D 使用 linear 深度采样，随后执行一次硬阴影比较。
+        float closest_depth = texture(shadow_tex, suv).r;
+        visibility = shadow_ndc.z <= closest_depth ? 1.0 : 0.0;
+      }
+    }
+  }
+
+  // 阴影只衰减方向光产生的直接光照，环境光始终保留；先完成 HDR 光照
+  // 合成，再执行非线性的 tone mapping。
   vec3 ambient = vec3(0.03) * mate_albedo * mate_ao;
-  vec3 color = ambient + lo;
+  vec3 color = ambient + visibility * lo;
 
   color = color / (color + vec3(1.0));
   //color = pow(color, vec3(1.0 / 2.2));
-
-  {
-    vec4 vtmp = shadow_matrix.pers * vec4(vp_pos, 1);
-    vtmp.xyz /= vtmp.w; vtmp.w = 1;
-    vtmp = shadow_matrix.mvp * vtmp;
-    vtmp.xyz /= vtmp.w;
-    vtmp.xy = (vtmp.xy + vec2(1.0, 1.0)) / 2.0;
-
-    vec2 suv = vtmp.xy;
-    suv.y = 1 - suv.y;
-    float dep = texture(shadow_tex, suv).r;
-    float depbias = (tan(acos(dot(n, l))) + 1) * 0.0001;
-    if(vtmp.z > dep + depbias)
-    {
-      color = color * dep;
-    }
-  }
 
   frag_color = vec4(color, 1.0);
 }
